@@ -236,24 +236,194 @@ textarea.form-input { min-height: 72px; resize: vertical; line-height: 1.5; }
 @keyframes spin { to { transform: rotate(360deg); } }
 
 ::-webkit-scrollbar { width: 5px; } ::-webkit-scrollbar-track { background: transparent; } ::-webkit-scrollbar-thumb { background: #ddd; border-radius: 3px; }
+
+.auth-wrap { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 20px; }
+.auth-card { background: #fff; border-radius: 8px; box-shadow: 0 4px 24px rgba(0,0,0,.08); padding: 36px 32px; width: 100%; max-width: 380px; }
+.auth-title { font-family: Georgia,serif; font-size: 22px; font-weight: bold; margin-bottom: 4px; }
+.auth-sub { font-family: Arial,sans-serif; font-size: 12px; color: var(--muted); margin-bottom: 24px; }
+.auth-error { background: var(--lost-bg); color: var(--lost); font-family: Arial,sans-serif; font-size: 12px; padding: 9px 12px; border-radius: 4px; margin-bottom: 14px; }
+.auth-switch { text-align: center; margin-top: 16px; font-family: Arial,sans-serif; font-size: 12px; color: var(--muted); }
+.auth-switch a { color: var(--accent); cursor: pointer; text-decoration: underline; }
+.full-loading { min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; font-family: Arial,sans-serif; font-size: 12px; color: var(--muted); }
+
+.legacy-banner { background: var(--pending-bg); border-bottom: 1px solid var(--pending); padding: 12px 20px; display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; font-family: Arial,sans-serif; font-size: 13px; }
+.legacy-banner-text { color: #7c4a03; }
+.legacy-banner-actions { display: flex; gap: 8px; flex-shrink: 0; }
 </style>
 </head>
 <body>
 <div id="app"></div>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <script>
+// ═══════════════════════════════════════
+// SUPABASE
+// ═══════════════════════════════════════
+const SUPABASE_URL = 'https://nzexgqjrvjwkgdidhssu.supabase.co';
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im56ZXhncWpydmp3a2dkaWRoc3N1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODYzOTI1MDEsImV4cCI6MjEwMTk2ODUwMX0.Jmw73ZI1O-LcZ8R9pZC0n_G1EM8nTWfcmysiBxowKsY';
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+const LEGACY_STORE = 'auctionTracker_v3'; // old localStorage key, kept only for one-time import
+
+function uuid() {
+  if (window.crypto && crypto.randomUUID) return crypto.randomUUID();
+  // Fallback for contexts where crypto.randomUUID isn't available (e.g. some file:// setups)
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
+    const r = Math.random()*16|0, v = c==='x'?r:(r&0x3|0x8);
+    return v.toString(16);
+  });
+}
+
 // ═══════════════════════════════════════
 // STATE
 // ═══════════════════════════════════════
-const STORE = 'auctionTracker_v3';
-function loadState() {
-  try { const s = localStorage.getItem(STORE); if (s) return JSON.parse(s); } catch(e) {}
-  return { auctions: [] };
-}
-let state = loadState();
-state.view = state.view || 'pipeline';
+let state = { auctions: [], view: 'pipeline' };
+let auth = { user: null, checked: false, mode: 'signin', error: '', busy: false };
+let sync = { loading: false, error: '', legacyImport: null }; // legacyImport: null | 'available' | 'importing' | 'done'
 
-function save() { localStorage.setItem(STORE, JSON.stringify({ auctions: state.auctions })); }
-function uuid() { return Date.now().toString(36) + Math.random().toString(36).slice(2,7); }
+// DB row (snake_case) <-> local object (camelCase) mapping
+function dbAuctionToLocal(row) {
+  return { id: row.id, name: row.name, house: row.house||'', date: row.date||'', url: row.url||'', imageUrl: row.image_url||'', notes: row.notes||'', lots: [] };
+}
+function localAuctionToDbRow(a) {
+  return { id: a.id, name: a.name||'', house: a.house||'', date: a.date||null, url: a.url||'', image_url: a.imageUrl||'', notes: a.notes||'' };
+}
+function dbLotToLocal(row) {
+  return {
+    id: row.id, status: row.status, name: row.name||'', lotNumber: row.lot_number||'',
+    estimate: row.estimate||'', description: row.description||'', hammerPrice: row.hammer_price||'',
+    lotUrl: row.lot_url||'', lotImageUrl: row.lot_image_url||'',
+    wonPhase:     row.won_phase     || { paid:false, shippingQuotes:false, notes:'' },
+    transitPhase: row.transit_phase || { paidShipping:false, paidTaxes:false, notes:'' },
+    arrivalPhase: row.arrival_phase || { receivedByNexus:false, lagos:false, notes:'' },
+    createdAt: row.created_at ? new Date(row.created_at).getTime() : Date.now(),
+  };
+}
+function localLotToDbRow(l, auctionId) {
+  return {
+    id: l.id, auction_id: auctionId, status: l.status, name: l.name||'',
+    lot_number: l.lotNumber||'', estimate: l.estimate||'', description: l.description||'',
+    hammer_price: l.hammerPrice||'', lot_url: l.lotUrl||'', lot_image_url: l.lotImageUrl||'',
+    won_phase: l.wonPhase, transit_phase: l.transitPhase, arrival_phase: l.arrivalPhase,
+  };
+}
+
+// ═══════════════════════════════════════
+// AUTH
+// ═══════════════════════════════════════
+function setAuthMode(m) { auth.mode = m; auth.error = ''; render(); }
+
+async function handleAuthSubmit() {
+  const email = (document.getElementById('auth-email')?.value||'').trim();
+  const password = document.getElementById('auth-password')?.value||'';
+  if (!email || !password) { auth.error = 'Enter both email and password.'; render(); return; }
+  auth.busy = true; auth.error = ''; render();
+  try {
+    if (auth.mode === 'signup') {
+      const { error } = await sb.auth.signUp({ email, password });
+      if (error) throw error;
+      auth.error = ''; auth.busy = false;
+      toast('Account created — check your email if confirmation is required, then sign in.');
+      auth.mode = 'signin'; render();
+    } else {
+      const { error } = await sb.auth.signInWithPassword({ email, password });
+      if (error) throw error;
+      // onAuthStateChange handles the rest (loading data, re-rendering)
+    }
+  } catch (err) {
+    auth.busy = false;
+    auth.error = err.message || 'Something went wrong.';
+    render();
+  }
+}
+async function handleSignOut() {
+  await sb.auth.signOut();
+  state.auctions = [];
+  auth.user = null;
+  render();
+}
+
+async function loadDataFromSupabase() {
+  sync.loading = true; sync.error = ''; render();
+  try {
+    const [{ data: auctionRows, error: aErr }, { data: lotRows, error: lErr }] = await Promise.all([
+      sb.from('auctions').select('*').order('created_at', { ascending: false }),
+      sb.from('lots').select('*').order('created_at', { ascending: false }),
+    ]);
+    if (aErr) throw aErr;
+    if (lErr) throw lErr;
+    const byId = {};
+    (auctionRows||[]).forEach(row => { byId[row.id] = dbAuctionToLocal(row); });
+    (lotRows||[]).forEach(row => { const a = byId[row.auction_id]; if (a) a.lots.push(dbLotToLocal(row)); });
+    state.auctions = Object.values(byId);
+    checkForLegacyLocalData();
+  } catch (err) {
+    console.error('[AuctionTracker] Load failed:', err);
+    sync.error = 'Could not load your data — check your connection and try refreshing.';
+  } finally {
+    sync.loading = false; render();
+  }
+}
+
+// One-time offer to import whatever was sitting in this browser's localStorage
+// from before the Supabase migration, so nothing gets silently lost.
+function checkForLegacyLocalData() {
+  try {
+    const raw = localStorage.getItem(LEGACY_STORE);
+    if (!raw) { sync.legacyImport = null; return; }
+    const parsed = JSON.parse(raw);
+    if (parsed && Array.isArray(parsed.auctions) && parsed.auctions.length > 0) {
+      sync.legacyImport = 'available';
+    } else {
+      sync.legacyImport = null;
+    }
+  } catch(e) { sync.legacyImport = null; }
+}
+
+async function importLegacyLocalData() {
+  sync.legacyImport = 'importing'; render();
+  try {
+    const parsed = JSON.parse(localStorage.getItem(LEGACY_STORE));
+    for (const a of (parsed.auctions||[])) {
+      const newAuctionId = uuid();
+      const auctionRow = {
+        id: newAuctionId, name: a.name||'Untitled Auction', house: a.house||'',
+        date: a.date||null, url: a.url||'', image_url: a.imageUrl||'', notes: a.notes||''
+      };
+      const { error: aErr } = await sb.from('auctions').insert(auctionRow);
+      if (aErr) throw aErr;
+      for (const l of (a.lots||[])) {
+        let lotImageUrl = l.lotImageUrl || '';
+        // Old base64 photos: upload to Storage instead of carrying the blob into Postgres
+        if (lotImageUrl.startsWith('data:')) {
+          try { lotImageUrl = await uploadDataUrlToStorage(lotImageUrl); }
+          catch(e) { console.error('[AuctionTracker] Legacy image upload failed:', e); lotImageUrl = ''; }
+        }
+        const lotRow = {
+          id: uuid(), auction_id: newAuctionId, status: l.status||'pending', name: l.name||'',
+          lot_number: l.lotNumber||'', estimate: l.estimate||'', description: l.description||'',
+          hammer_price: l.hammerPrice||'', lot_url: l.lotUrl||'', lot_image_url: lotImageUrl,
+          won_phase: l.wonPhase || {paid:false,shippingQuotes:false,notes:''},
+          transit_phase: l.transitPhase || {paidShipping:false,paidTaxes:false,notes:''},
+          arrival_phase: l.arrivalPhase || {receivedByNexus:false,lagos:false,notes:''},
+        };
+        const { error: lErr } = await sb.from('lots').insert(lotRow);
+        if (lErr) throw lErr;
+      }
+    }
+    localStorage.removeItem(LEGACY_STORE);
+    sync.legacyImport = 'done';
+    toast('Local data imported ✓');
+    await loadDataFromSupabase();
+  } catch (err) {
+    console.error('[AuctionTracker] Legacy import failed:', err);
+    sync.legacyImport = 'available';
+    toast('⚠️ Import failed partway — check console for details');
+    render();
+  }
+}
+function dismissLegacyImport() {
+  localStorage.removeItem(LEGACY_STORE);
+  sync.legacyImport = null; render();
+}
 
 // ═══════════════════════════════════════
 // DATA HELPERS
@@ -278,29 +448,38 @@ function phaseProgress(lot) {
 }
 
 // ═══════════════════════════════════════
-// ACTIONS
+// ACTIONS — optimistic local update + async write-through to Supabase
 // ═══════════════════════════════════════
+function dbFail(action, err) {
+  console.error(`[AuctionTracker] ${action} failed:`, err);
+  toast(`⚠️ ${action} didn't sync to the cloud — check your connection`);
+}
+
 function ensureAuction(data) {
   // Find existing auction by name (case-insensitive) or create new
   const name = (data.name || '').trim();
   let a = state.auctions.find(x => x.name.toLowerCase() === name.toLowerCase());
   if (!a) {
-    a = { id: uuid(), lots: [], name, house: data.house||'', date: data.date||'', url: data.url||'', imageUrl: data.imageUrl||'' };
+    a = { id: uuid(), lots: [], name, house: data.house||'', date: data.date||'', url: data.url||'', imageUrl: data.imageUrl||'', notes: '' };
     state.auctions.push(a);
+    sb.from('auctions').insert(localAuctionToDbRow(a)).then(({error}) => { if (error) dbFail('Add auction', error); });
   } else {
-    // Update auction details if provided
     if (data.house)    a.house    = data.house;
     if (data.date)     a.date     = data.date;
     if (data.url)      a.url      = data.url;
     if (data.imageUrl) a.imageUrl = data.imageUrl;
+    sb.from('auctions').update(localAuctionToDbRow(a)).eq('id', a.id).then(({error}) => { if (error) dbFail('Update auction', error); });
   }
   return a;
 }
 function updateAuction(id, data) {
-  const a = getAuction(id); if (a) Object.assign(a, data); save(); render();
+  const a = getAuction(id); if (!a) return;
+  Object.assign(a, data); render();
+  sb.from('auctions').update(localAuctionToDbRow(a)).eq('id', a.id).then(({error}) => { if (error) dbFail('Update auction', error); });
 }
 function deleteAuction(id) {
-  state.auctions = state.auctions.filter(a => a.id !== id); save(); render();
+  state.auctions = state.auctions.filter(a => a.id !== id); render();
+  sb.from('auctions').delete().eq('id', id).then(({error}) => { if (error) dbFail('Delete auction', error); });
 }
 function makeLot(data) {
   return {
@@ -313,21 +492,34 @@ function makeLot(data) {
 }
 function addLotToAuction(auctionId, data) {
   const a = getAuction(auctionId); if (!a) return;
-  a.lots.push(makeLot(data)); save(); render();
+  const lot = makeLot(data);
+  a.lots.push(lot); render();
+  sb.from('lots').insert(localLotToDbRow(lot, auctionId)).then(({error}) => { if (error) dbFail('Add lot', error); });
 }
 function updateLot(aId, lId, data) {
   const a = getAuction(aId); if (!a) return;
-  const l = a.lots.find(x => x.id === lId); if (l) Object.assign(l, data); save();
+  const l = a.lots.find(x => x.id === lId); if (!l) return;
+  Object.assign(l, data);
+  sb.from('lots').update(localLotToDbRow(l, aId)).eq('id', l.id).then(({error}) => { if (error) dbFail('Update lot', error); });
 }
 function deleteLot(aId, lId) {
   const a = getAuction(aId); if (!a) return;
   a.lots = a.lots.filter(l => l.id !== lId);
-  if (a.lots.length === 0) state.auctions = state.auctions.filter(x => x.id !== aId);
-  save(); render();
+  const auctionNowEmpty = a.lots.length === 0;
+  if (auctionNowEmpty) state.auctions = state.auctions.filter(x => x.id !== aId);
+  render();
+  sb.from('lots').delete().eq('id', lId).then(({error}) => {
+    if (error) { dbFail('Delete lot', error); return; }
+    if (auctionNowEmpty) {
+      sb.from('auctions').delete().eq('id', aId).then(({error}) => { if (error) dbFail('Delete auction', error); });
+    }
+  });
 }
-function setStatus(aId, lId, status) { updateLot(aId, lId, { status }); save(); render(); }
+function setStatus(aId, lId, status) { updateLot(aId, lId, { status }); render(); }
 function setPhaseField(aId, lId, phase, field, value) {
-  const l = getLot(aId, lId); if (l) l[phase][field] = value; save();
+  const l = getLot(aId, lId); if (!l) return;
+  l[phase][field] = value;
+  sb.from('lots').update(localLotToDbRow(l, aId)).eq('id', l.id).then(({error}) => { if (error) dbFail('Save note', error); });
 }
 
 // ═══════════════════════════════════════
@@ -357,8 +549,10 @@ function renderNav() {
   return `<nav class="nav">
     <div class="nav-brand">Auction Tracker</div>
     <div class="nav-tabs">${tabs.map(t=>`<div class="nav-tab${state.view===t.id?' active':''}" onclick="setView('${t.id}')">${t.label}</div>`).join('')}</div>
-    <div style="width:160px;text-align:right">
+    <div style="display:flex;align-items:center;gap:10px">
+      <span style="font-family:Arial,sans-serif;font-size:11px;color:rgba(255,255,255,.5)" title="${escA(auth.user?.email||'')}">${esc((auth.user?.email||'').split('@')[0])}</span>
       <button class="btn btn-sm" style="background:rgba(255,255,255,.12);color:#fff;border:1px solid rgba(255,255,255,.2)" onclick="openModal('newLot',{})">+ New Lot</button>
+      <button class="btn btn-sm" style="background:transparent;color:rgba(255,255,255,.5);border:1px solid rgba(255,255,255,.2)" onclick="handleSignOut()" title="Sign out">⏻</button>
     </div>
   </nav>`;
 }
@@ -828,9 +1022,67 @@ function renderConfirm() {
 // ═══════════════════════════════════════
 // RENDER
 // ═══════════════════════════════════════
+function renderAuthScreen() {
+  const isSignup = auth.mode === 'signup';
+  return `<div class="auth-wrap"><div class="auth-card">
+    <div class="auth-title">Auction Tracker</div>
+    <div class="auth-sub">${isSignup ? 'Create an account to get started' : 'Sign in to your team pipeline'}</div>
+    ${auth.error ? `<div class="auth-error">${esc(auth.error)}</div>` : ''}
+    <div class="form-group" style="margin-bottom:12px">
+      <label class="form-label">Email</label>
+      <input class="form-input" id="auth-email" type="email" autocomplete="email" placeholder="you@hourglassgallery.com" onkeydown="if(event.key==='Enter')handleAuthSubmit()">
+    </div>
+    <div class="form-group" style="margin-bottom:18px">
+      <label class="form-label">Password</label>
+      <input class="form-input" id="auth-password" type="password" autocomplete="${isSignup?'new-password':'current-password'}" placeholder="••••••••" onkeydown="if(event.key==='Enter')handleAuthSubmit()">
+    </div>
+    <button class="btn btn-primary" style="width:100%;justify-content:center;padding:11px" ${auth.busy?'disabled':''} onclick="handleAuthSubmit()">
+      ${auth.busy ? '<span class="spinner"></span>' : (isSignup ? 'Create Account' : 'Sign In')}
+    </button>
+    <div class="auth-switch">
+      ${isSignup
+        ? `Already have an account? <a onclick="setAuthMode('signin')">Sign in</a>`
+        : `Need an account? <a onclick="setAuthMode('signup')">Create one</a>`}
+    </div>
+  </div></div>`;
+}
+
+function renderLoadingScreen(msg) {
+  return `<div class="full-loading"><span class="spinner"></span><div>${esc(msg||'Loading…')}</div></div>`;
+}
+
+function renderLegacyImportBanner() {
+  if (sync.legacyImport === 'available') {
+    return `<div class="legacy-banner">
+      <div class="legacy-banner-text">📦 Found auction data saved locally in this browser from before cloud sync — import it into your account?</div>
+      <div class="legacy-banner-actions">
+        <button class="btn btn-primary btn-sm" onclick="importLegacyLocalData()">Import</button>
+        <button class="btn btn-outline btn-sm" onclick="dismissLegacyImport()">Dismiss</button>
+      </div>
+    </div>`;
+  }
+  if (sync.legacyImport === 'importing') {
+    return `<div class="legacy-banner"><div class="legacy-banner-text"><span class="spinner"></span> Importing your local data — this can take a moment if you have photos…</div></div>`;
+  }
+  return '';
+}
+
 function render() {
+  const app = document.getElementById('app');
+  if (!auth.checked) { app.innerHTML = renderLoadingScreen('Connecting…'); return; }
+  if (!auth.user) { app.innerHTML = renderAuthScreen(); return; }
+  if (sync.loading) { app.innerHTML = renderNav() + renderLoadingScreen('Loading your pipeline…'); return; }
+  if (sync.error) {
+    app.innerHTML = renderNav() + `<div class="empty-state" style="margin-top:60px">
+      <div class="empty-state-icon">⚠️</div>
+      <div class="empty-state-title">Could not load your data</div>
+      <div class="empty-state-text">${esc(sync.error)}</div>
+      <button class="btn btn-primary" onclick="loadDataFromSupabase()">Try Again</button>
+    </div>`;
+    return;
+  }
   let body = state.view==='pipeline' ? renderPipeline() : state.view==='lots' ? renderLots() : renderLost();
-  document.getElementById('app').innerHTML = renderNav() + body + renderModal() + renderConfirm();
+  app.innerHTML = renderNav() + renderLegacyImportBanner() + body + renderModal() + renderConfirm();
 }
 
 // ═══════════════════════════════════════
@@ -929,7 +1181,7 @@ function submitEditLot(aId, lId) {
     lotUrl:      (document.getElementById('f-loturl')?.value||'').trim(),
     lotImageUrl: (document.getElementById('f-imageurl')?.value||'').trim(),
   });
-  save(); closeModal(); toast('Lot updated');
+  closeModal(); toast('Lot updated');
 }
 
 // ═══════════════════════════════════════
@@ -1079,8 +1331,9 @@ function extractLotNum(url) {
 
 function proxyImg(url) {
   if (!url) return '';
-  if (url.startsWith('data:')) return url; // embedded/uploaded image — already local, never proxy it
+  if (url.startsWith('data:')) return url; // embedded/legacy image — already local, never proxy it
   if (url.includes('wsrv.nl')||url.includes('weserv.nl')) return url;
+  if (url.includes('.supabase.co/storage/')) return url; // our own Storage upload — already fast + CORS-safe
   return `https://wsrv.nl/?url=${encodeURIComponent(url.replace(/^https?:\/\//,''))}&w=800&output=jpg&q=85`;
 }
 
@@ -1122,7 +1375,7 @@ function parseFromPasted() {
 }
 
 // ═══════════════════════════════════════
-// LOT IMAGE UPLOAD (camera / file)
+// LOT IMAGE UPLOAD (camera / file) — Supabase Storage
 // ═══════════════════════════════════════
 function handleLotImageFile(inputEl) {
   const file = inputEl.files && inputEl.files[0];
@@ -1131,26 +1384,26 @@ function handleLotImageFile(inputEl) {
   if (!file.type.startsWith('image/')) { toast('Please choose an image file'); return; }
 
   const prev = document.getElementById('lot-img-preview');
-  if (prev) { prev.style.display = 'block'; prev.innerHTML = '<span style="font-family:Arial;font-size:12px;color:var(--muted)">Processing photo…</span>'; }
+  if (prev) { prev.style.display = 'block'; prev.innerHTML = '<span style="font-family:Arial;font-size:12px;color:var(--muted)">Uploading photo…</span>'; }
 
   compressImageFile(file, 1200, 0.82)
-    .then(dataUrl => {
+    .then(blob => uploadBlobToStorage(blob))
+    .then(publicUrl => {
       const el = document.getElementById('f-imageurl');
-      if (el) el.value = dataUrl;
+      if (el) el.value = publicUrl;
       if (prev) {
-        prev.innerHTML = `<img src="${dataUrl}" style="max-width:100%;max-height:160px;border-radius:5px;border:1px solid var(--border);object-fit:contain;background:#f8f8f8">`;
+        prev.innerHTML = `<img src="${escA(publicUrl)}" style="max-width:100%;max-height:160px;border-radius:5px;border:1px solid var(--border);object-fit:contain;background:#f8f8f8">`;
       }
     })
     .catch(err => {
-      console.error('[AuctionTracker] Image processing failed:', err);
+      console.error('[AuctionTracker] Image upload failed:', err);
       if (prev) prev.innerHTML = '';
-      toast('Could not process that photo');
+      toast('⚠️ Could not upload that photo — check your connection');
     });
 }
 
 // Resizes an image file to fit within maxDim (longest side) and re-encodes
-// as JPEG at the given quality, returning a data URL. Keeps stored lots
-// small since everything lives in localStorage (~5-10MB total budget).
+// as JPEG at the given quality, returning a Blob ready for Storage upload.
 function compressImageFile(file, maxDim, quality) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -1168,12 +1421,31 @@ function compressImageFile(file, maxDim, quality) {
         canvas.width = width; canvas.height = height;
         const ctx = canvas.getContext('2d');
         ctx.drawImage(img, 0, 0, width, height);
-        resolve(canvas.toDataURL('image/jpeg', quality));
+        canvas.toBlob(blob => blob ? resolve(blob) : reject(new Error('encode failed')), 'image/jpeg', quality);
       };
       img.src = reader.result;
     };
     reader.readAsDataURL(file);
   });
+}
+
+// Uploads a Blob to the 'lot-images' Storage bucket and returns its public URL.
+async function uploadBlobToStorage(blob) {
+  const path = `${uuid()}.jpg`;
+  const { error } = await sb.storage.from('lot-images').upload(path, blob, {
+    contentType: 'image/jpeg', cacheControl: '3600', upsert: false
+  });
+  if (error) throw error;
+  const { data } = sb.storage.from('lot-images').getPublicUrl(path);
+  return data.publicUrl;
+}
+
+// Used only by the one-time legacy-data import: converts an old base64
+// data: URL (from before the Storage migration) into a real uploaded photo.
+async function uploadDataUrlToStorage(dataUrl) {
+  const res = await fetch(dataUrl);
+  const blob = await res.blob();
+  return uploadBlobToStorage(blob);
 }
 
 // ═══════════════════════════════════════
@@ -1193,7 +1465,25 @@ function fmtDate(d) {
 // ═══════════════════════════════════════
 // INIT
 // ═══════════════════════════════════════
-render();
+render(); // initial loading screen while we check for a session
+
+sb.auth.onAuthStateChange((event, session) => {
+  const wasSignedIn = !!auth.user;
+  auth.user = session?.user || null;
+  auth.checked = true;
+  auth.busy = false;
+
+  if (auth.user && !wasSignedIn) {
+    // Just signed in (fresh sign-in or session restored on page load)
+    loadDataFromSupabase();
+  } else if (!auth.user) {
+    state.auctions = [];
+    render();
+  } else {
+    render();
+  }
+});
+
 </script>
 </body>
 </html>
