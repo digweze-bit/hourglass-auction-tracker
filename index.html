@@ -1,0 +1,1199 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Auction Tracker</title>
+<style>
+:root {
+  --bg: #f5f3f0; --surface: #fff; --surface2: #f0ede8; --border: #e2ddd6;
+  --text: #1a1a1a; --muted: #7a7068; --accent: #1a1a1a;
+  --won: #2d6a4f; --won-bg: #d8f3dc;
+  --transit: #1d3a6e; --transit-bg: #dde6f7;
+  --arrival: #6b2fa0; --arrival-bg: #eeddf7;
+  --archived: #555; --archived-bg: #e8e8e8;
+  --lost: #b91c1c; --lost-bg: #fde8e8;
+  --passed-bg: #e8e8e8; --passed: #666;
+  --pending: #b45309; --pending-bg: #fef3c7;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: Georgia, serif; background: var(--bg); color: var(--text); min-height: 100vh; }
+
+/* NAV */
+.nav { background: var(--accent); color: #fff; padding: 0 28px; display: flex; align-items: center; justify-content: space-between; height: 58px; position: sticky; top: 0; z-index: 100; box-shadow: 0 2px 8px rgba(0,0,0,.2); }
+.nav-brand { font-family: Arial,sans-serif; font-size: 14px; letter-spacing: 3px; text-transform: uppercase; font-weight: 300; }
+.nav-tabs { display: flex; height: 100%; }
+.nav-tab { padding: 0 22px; display: flex; align-items: center; cursor: pointer; font-family: Arial,sans-serif; font-size: 11px; letter-spacing: 1.5px; text-transform: uppercase; color: rgba(255,255,255,.55); border-bottom: 2px solid transparent; transition: all .2s; }
+.nav-tab:hover { color: rgba(255,255,255,.9); }
+.nav-tab.active { color: #fff; border-bottom-color: #fff; }
+
+/* MAIN */
+.main { padding: 28px; max-width: 1400px; margin: 0 auto; }
+.page-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; }
+.page-title { font-size: 22px; font-weight: bold; }
+
+/* BUTTONS */
+.btn { font-family: Arial,sans-serif; font-size: 11px; letter-spacing: 1px; text-transform: uppercase; padding: 8px 16px; border: none; border-radius: 3px; cursor: pointer; transition: all .15s; font-weight: 600; display: inline-flex; align-items: center; gap: 5px; }
+.btn-primary { background: var(--accent); color: #fff; }
+.btn-primary:hover { background: #333; }
+.btn-outline { background: transparent; color: var(--accent); border: 1px solid var(--border); }
+.btn-outline:hover { background: var(--surface2); border-color: #aaa; }
+.btn-sm  { padding: 5px 10px; font-size: 10px; }
+.btn-xs  { padding: 3px 8px; font-size: 9px; letter-spacing: .8px; }
+.btn-won { background: var(--won); color: #fff; border: none; }
+.btn-won:hover { background: #235a41; }
+.btn-lost { background: var(--lost); color: #fff; border: none; }
+.btn-lost:hover { background: #991b1b; }
+.btn-passed { background: #888; color: #fff; border: none; }
+.btn-passed:hover { background: #666; }
+.btn-transit { background: var(--transit); color: #fff; border: none; }
+.btn-transit:hover { background: #162d57; }
+.btn-arrival { background: var(--arrival); color: #fff; border: none; }
+.btn-arrival:hover { background: #5a2688; }
+.btn-archive { background: var(--archived); color: #fff; border: none; }
+.btn-archive:hover { background: #333; }
+.btn-danger { background: var(--lost); color: #fff; border: none; }
+.btn-danger:hover { background: #991b1b; }
+.btn-ghost { background: none; border: 1px solid #ddd; color: #aaa; }
+.btn-ghost:hover { background: #f5f5f5; color: #888; border-color: #ccc; }
+.btn-add-sub { background: var(--surface2); color: var(--transit); border: 1px dashed var(--transit); width: 100%; justify-content: center; padding: 10px; font-size: 11px; border-radius: 0; }
+.btn-add-sub:hover { background: var(--transit-bg); }
+
+/* STATS */
+.stats-bar { display: grid; grid-template-columns: repeat(5,1fr); gap: 12px; margin-bottom: 28px; }
+.stat-card { background: #fff; border-radius: 6px; padding: 14px 16px; box-shadow: 0 1px 3px rgba(0,0,0,.06); border-top: 3px solid var(--border); }
+.stat-card.won { border-top-color: var(--won); }
+.stat-card.transit { border-top-color: var(--transit); }
+.stat-card.arrival { border-top-color: var(--arrival); }
+.stat-card.archived { border-top-color: var(--archived); }
+.stat-num { font-size: 28px; font-weight: bold; line-height: 1; }
+.stat-num.won { color: var(--won); } .stat-num.transit { color: var(--transit); }
+.stat-num.arrival { color: var(--arrival); } .stat-num.archived { color: var(--archived); }
+.stat-label { font-family: Arial,sans-serif; font-size: 10px; text-transform: uppercase; letter-spacing: 1.5px; color: var(--muted); margin-top: 5px; }
+
+/* PIPELINE */
+.pipeline { display: flex; flex-direction: column; gap: 20px; }
+.phase-section { background: #fff; border-radius: 8px; overflow: hidden; box-shadow: 0 1px 4px rgba(0,0,0,.06); }
+.phase-col-header { padding: 14px 16px; font-family: Arial,sans-serif; font-size: 10px; letter-spacing: 2px; text-transform: uppercase; font-weight: 700; display: flex; align-items: center; justify-content: space-between; }
+.phase-col-header.won { background: var(--won); color: #fff; }
+.phase-col-header.transit { background: var(--transit); color: #fff; }
+.phase-col-header.arrival { background: var(--arrival); color: #fff; }
+.phase-col-header.archived { background: var(--archived); color: #fff; }
+.phase-col-header.pending { background: var(--pending); color: #fff; }
+.phase-count { background: rgba(255,255,255,.22); border-radius: 20px; padding: 2px 9px; font-size: 11px; }
+.phase-grid { padding: 16px; display: grid; grid-template-columns: repeat(auto-fill, minmax(160px,1fr)); gap: 14px; min-height: 40px; }
+.empty-col { grid-column: 1/-1; text-align: center; padding: 28px 16px; font-family: Arial,sans-serif; font-size: 12px; color: #ccc; }
+.phase-tile { position: relative; cursor: pointer; border-radius: 6px; overflow: hidden; aspect-ratio: 1/1; background: #f0f0f0; transition: transform .15s; }
+.phase-tile:hover { transform: translateY(-2px); box-shadow: 0 6px 16px rgba(0,0,0,.18); }
+.phase-tile img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.phase-tile.no-image { display: flex; align-items: center; justify-content: center; flex-direction: column; gap: 6px; background: var(--surface2); border: 1px dashed var(--border); }
+.phase-tile.no-image .ph-icon { font-size: 26px; opacity: .35; }
+.phase-tile.no-image .ph-label { font-family: Arial,sans-serif; font-size: 10px; color: var(--muted); text-align: center; padding: 0 8px; }
+.phase-tile-caption { position: absolute; left: 0; right: 0; bottom: 0; padding: 20px 8px 7px; background: linear-gradient(transparent, rgba(0,0,0,.78)); color: #fff; }
+.phase-tile-caption .ptc-name { font-size: 11px; font-weight: bold; line-height: 1.25; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.phase-tile-caption .ptc-meta { font-family: Arial,sans-serif; font-size: 9px; opacity: .85; margin-top: 2px; }
+.phase-tile .prog-bar { position: absolute; top: 0; left: 0; right: 0; height: 3px; background: rgba(255,255,255,.35); }
+.phase-tile .prog-bar-fill { height: 100%; }
+
+/* LOT CARD */
+.lot-card { background: var(--surface2); border: 1px solid var(--border); border-radius: 5px; overflow: hidden; cursor: pointer; transition: all .15s; }
+.lot-card:hover { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(0,0,0,.1); }
+.lot-card-img { width: 100%; height: 100px; object-fit: cover; background: #f0f0f0; display: block; }
+.lot-card-body { padding: 10px 12px; }
+.lot-card-auction { font-family: Arial,sans-serif; font-size: 9px; letter-spacing: 1px; text-transform: uppercase; color: var(--muted); margin-bottom: 4px; }
+.lot-card-name { font-size: 13px; font-weight: bold; line-height: 1.35; margin-bottom: 5px; }
+.lot-card-meta { font-family: Arial,sans-serif; font-size: 11px; color: var(--muted); }
+.prog-bar { height: 3px; background: #eee; border-radius: 2px; margin-top: 8px; overflow: hidden; }
+.prog-bar-fill { height: 100%; border-radius: 2px; transition: width .3s; }
+.prog-won { background: var(--won); } .prog-transit { background: var(--transit); } .prog-arrival { background: var(--arrival); }
+
+/* LOTS VIEW */
+.lots-list { display: flex; flex-direction: column; gap: 24px; }
+.auction-group { background: #fff; border-radius: 8px; box-shadow: 0 1px 4px rgba(0,0,0,.06); overflow: hidden; }
+.auction-group-header { display: flex; align-items: stretch; }
+.auction-group-img { width: 120px; min-height: 80px; object-fit: cover; flex-shrink: 0; background: #f0f0f0; }
+.auction-group-info { padding: 14px 18px; flex: 1; display: flex; flex-direction: column; justify-content: center; }
+.auction-group-name { font-size: 16px; font-weight: bold; margin-bottom: 4px; }
+.auction-group-sub { font-family: Arial,sans-serif; font-size: 12px; color: var(--muted); display: flex; gap: 12px; flex-wrap: wrap; align-items: center; }
+.auction-group-sub a { color: var(--transit); text-decoration: none; font-weight: 600; }
+.auction-group-actions { padding: 14px 16px; display: flex; gap: 8px; align-items: center; flex-shrink: 0; }
+
+/* LOT ROW */
+.lot-row { padding: 11px 20px; display: flex; align-items: center; gap: 12px; border-bottom: 1px solid var(--border); transition: background .1s; }
+.lot-row:last-of-type { border-bottom: none; }
+.lot-row:hover { background: var(--surface2); }
+.lot-row-thumb { width: 44px; height: 44px; object-fit: cover; border-radius: 3px; background: #f0f0f0; flex-shrink: 0; }
+.lot-row-num { font-family: Arial,sans-serif; font-size: 11px; color: var(--muted); min-width: 52px; }
+.lot-row-info { flex: 1; min-width: 0; }
+.lot-row-name { font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lot-row-estimate { font-family: Arial,sans-serif; font-size: 12px; color: var(--muted); margin-top: 1px; }
+.lot-row-actions { display: flex; gap: 6px; align-items: center; flex-shrink: 0; }
+.lot-group-label { padding: 7px 20px; font-family: Arial,sans-serif; font-size: 9px; letter-spacing: 1.5px; text-transform: uppercase; color: #aaa; background: #fafafa; border-bottom: 1px solid var(--border); border-top: 1px solid var(--border); }
+
+/* BADGES */
+.badge { font-family: Arial,sans-serif; font-size: 9px; letter-spacing: 1px; text-transform: uppercase; padding: 3px 9px; border-radius: 20px; font-weight: 700; white-space: nowrap; }
+.badge-pending  { background: var(--pending-bg);  color: var(--pending); }
+.badge-won      { background: var(--won-bg);      color: var(--won); }
+.badge-transit  { background: var(--transit-bg);  color: var(--transit); }
+.badge-arrival  { background: var(--arrival-bg);  color: var(--arrival); }
+.badge-archived { background: var(--archived-bg); color: var(--archived); }
+.badge-lost     { background: var(--lost-bg);     color: var(--lost); }
+.badge-passed   { background: var(--passed-bg);   color: var(--passed); }
+
+/* MODAL */
+.overlay { position: fixed; inset: 0; background: rgba(0,0,0,.48); z-index: 200; display: flex; align-items: center; justify-content: center; padding: 20px; }
+.modal { background: #fff; border-radius: 8px; width: 100%; max-width: 640px; max-height: 92vh; overflow-y: auto; box-shadow: 0 20px 60px rgba(0,0,0,.25); }
+.modal-header { padding: 20px 24px 18px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: start; position: sticky; top: 0; background: #fff; z-index: 2; }
+.modal-title { font-size: 18px; font-weight: bold; }
+.modal-subtitle { font-family: Arial,sans-serif; font-size: 12px; color: var(--muted); margin-top: 3px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.modal-close { background: none; border: none; font-size: 26px; cursor: pointer; color: #bbb; line-height: 1; padding: 0; margin-top: -2px; }
+.modal-close:hover { color: #666; }
+.modal-body { padding: 22px 24px; }
+.modal-footer { padding: 14px 24px; border-top: 1px solid var(--border); display: flex; justify-content: flex-end; gap: 10px; position: sticky; bottom: 0; background: #fff; z-index: 2; }
+
+/* FORM */
+.form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.form-group { margin-bottom: 16px; }
+.form-group:last-child { margin-bottom: 0; }
+.form-label { display: block; font-family: Arial,sans-serif; font-size: 10px; letter-spacing: 1px; text-transform: uppercase; color: var(--muted); margin-bottom: 6px; font-weight: 600; }
+.form-input { width: 100%; padding: 9px 12px; border: 1px solid var(--border); border-radius: 4px; font-family: inherit; font-size: 14px; background: var(--surface2); color: var(--text); transition: all .15s; }
+.form-input:focus { outline: none; border-color: #888; background: #fff; box-shadow: 0 0 0 2px rgba(0,0,0,.04); }
+textarea.form-input { min-height: 72px; resize: vertical; line-height: 1.5; }
+.form-select { appearance: none; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%23666' stroke-width='1.5' fill='none'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 12px center; padding-right: 34px; }
+
+/* IMPORT BOX */
+.import-box { background: #eef4ff; border: 2px solid var(--transit); border-radius: 6px; padding: 14px 16px; margin-bottom: 18px; }
+.import-row { display: flex; gap: 8px; margin-top: 8px; }
+.import-status { font-family: Arial,sans-serif; font-size: 12px; margin-top: 8px; line-height: 1.5; display: none; }
+.import-status.show { display: block; }
+.import-status.loading { color: var(--muted); }
+.import-status.success { color: var(--won); }
+.import-status.warn { color: var(--pending); }
+.import-status.error { color: var(--lost); }
+.paste-fallback { margin-top: 12px; display: none; }
+.paste-fallback.show { display: block; }
+.import-divider { border: none; border-top: 1px dashed var(--border); margin: 18px 0; }
+
+/* SECTION LABEL inside modal */
+.section-label { font-family: Arial,sans-serif; font-size: 10px; letter-spacing: 2px; text-transform: uppercase; font-weight: 700; color: var(--muted); margin-bottom: 14px; display: flex; align-items: center; gap: 10px; }
+.section-label::after { content:''; flex: 1; height: 1px; background: var(--border); }
+
+/* AUCTION SECTION inside new lot modal */
+.auction-section { background: var(--surface2); border-radius: 6px; padding: 16px; margin-top: 4px; border: 1px solid var(--border); }
+.auction-section.locked { opacity: .7; pointer-events: none; }
+
+/* PHASE BLOCKS */
+.phase-block { margin-bottom: 16px; border-radius: 6px; overflow: hidden; border: 1px solid var(--border); }
+.phase-block-header { padding: 12px 16px; font-family: Arial,sans-serif; font-size: 10px; letter-spacing: 2px; text-transform: uppercase; font-weight: 700; display: flex; align-items: center; justify-content: space-between; }
+.phase-block-header.won { background: var(--won); color: #fff; }
+.phase-block-header.transit { background: var(--transit); color: #fff; }
+.phase-block-header.arrival { background: var(--arrival); color: #fff; }
+.phase-block-header.archived { background: var(--archived); color: #fff; }
+.phase-block-body { padding: 14px 16px; background: #fff; }
+.check-item { display: flex; align-items: center; gap: 10px; padding: 7px 0; border-bottom: 1px solid #f0f0f0; }
+.check-item:last-of-type { border-bottom: none; }
+.check-item input[type="checkbox"] { width: 16px; height: 16px; cursor: pointer; accent-color: var(--won); flex-shrink: 0; }
+.check-item label { font-family: Arial,sans-serif; font-size: 13px; cursor: pointer; flex: 1; }
+.check-item.is-checked label { text-decoration: line-through; color: #bbb; }
+.phase-notes { margin-top: 12px; }
+.phase-notes-label { font-family: Arial,sans-serif; font-size: 10px; letter-spacing: 1px; text-transform: uppercase; color: var(--muted); margin-bottom: 6px; font-weight: 600; }
+
+/* LOT DETAIL */
+.lot-detail-img { width: 100%; max-height: 300px; object-fit: contain; border-radius: 6px; border: 1px solid var(--border); background: #f8f8f8; margin-bottom: 16px; }
+.lot-detail-meta { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 18px; padding: 14px; background: var(--surface2); border-radius: 6px; }
+.lot-detail-field-label { font-family: Arial,sans-serif; font-size: 10px; letter-spacing: 1px; text-transform: uppercase; color: var(--muted); margin-bottom: 3px; }
+.lot-detail-field-val { font-size: 14px; }
+.advance-bar { display: flex; justify-content: space-between; align-items: center; padding: 14px 16px; background: #f9f9f9; border-radius: 6px; margin-top: 16px; border: 1px solid var(--border); }
+.advance-label { font-family: Arial,sans-serif; font-size: 12px; color: var(--muted); }
+
+/* IMAGE */
+.image-preview { display: none; margin-top: 8px; }
+.image-preview.show { display: block; }
+.image-preview img { max-width: 100%; max-height: 160px; border-radius: 5px; border: 1px solid var(--border); object-fit: contain; background: #f5f5f5; }
+
+/* CONFIRM */
+.confirm-overlay { position: fixed; inset: 0; background: rgba(0,0,0,.5); z-index: 300; display: flex; align-items: center; justify-content: center; }
+.confirm-box { background: #fff; border-radius: 8px; padding: 28px 24px; max-width: 360px; width: 90%; text-align: center; box-shadow: 0 20px 60px rgba(0,0,0,.2); }
+.confirm-title { font-size: 16px; font-weight: bold; margin-bottom: 8px; }
+.confirm-msg { font-family: Arial,sans-serif; font-size: 13px; color: var(--muted); margin-bottom: 22px; line-height: 1.5; }
+.confirm-btns { display: flex; gap: 10px; justify-content: center; }
+
+/* TOAST */
+.toast { position: fixed; bottom: 24px; right: 24px; background: var(--accent); color: #fff; padding: 12px 20px; border-radius: 5px; font-family: Arial,sans-serif; font-size: 13px; z-index: 400; box-shadow: 0 4px 16px rgba(0,0,0,.2); animation: toastIn .25s ease; }
+@keyframes toastIn { from { transform: translateY(12px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+
+/* EMPTY */
+.empty-state { text-align: center; padding: 64px 20px; color: var(--muted); font-family: Arial,sans-serif; }
+.empty-state-icon { font-size: 42px; margin-bottom: 16px; }
+.empty-state-title { font-size: 16px; font-weight: bold; color: var(--text); margin-bottom: 8px; font-family: Georgia,serif; }
+.empty-state-text { font-size: 13px; margin-bottom: 20px; line-height: 1.6; }
+
+/* LOST TABLE */
+.lost-table { background: #fff; border-radius: 8px; box-shadow: 0 1px 4px rgba(0,0,0,.06); overflow: hidden; }
+
+/* SPINNER */
+.spinner { display: inline-block; width: 12px; height: 12px; border: 2px solid currentColor; border-top-color: transparent; border-radius: 50%; animation: spin .7s linear infinite; vertical-align: middle; margin-right: 4px; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+::-webkit-scrollbar { width: 5px; } ::-webkit-scrollbar-track { background: transparent; } ::-webkit-scrollbar-thumb { background: #ddd; border-radius: 3px; }
+</style>
+</head>
+<body>
+<div id="app"></div>
+<script>
+// ═══════════════════════════════════════
+// STATE
+// ═══════════════════════════════════════
+const STORE = 'auctionTracker_v3';
+function loadState() {
+  try { const s = localStorage.getItem(STORE); if (s) return JSON.parse(s); } catch(e) {}
+  return { auctions: [] };
+}
+let state = loadState();
+state.view = state.view || 'pipeline';
+
+function save() { localStorage.setItem(STORE, JSON.stringify({ auctions: state.auctions })); }
+function uuid() { return Date.now().toString(36) + Math.random().toString(36).slice(2,7); }
+
+// ═══════════════════════════════════════
+// DATA HELPERS
+// ═══════════════════════════════════════
+function allLots() {
+  return state.auctions.flatMap(a => a.lots.map(l => ({ ...l, auctionName: a.name, auctionId: a.id, auctionDate: a.date })));
+}
+function lotsByStatus(s) { return allLots().filter(l => l.status === s); }
+function getAuction(id) { return state.auctions.find(a => a.id === id); }
+function getLot(aId, lId) { const a = getAuction(aId); return a?.lots.find(l => l.id === lId); }
+
+function phaseProgress(lot) {
+  const m = {
+    won:     [lot.wonPhase.paid, lot.wonPhase.shippingQuotes],
+    transit: [lot.transitPhase.paidShipping, lot.transitPhase.paidTaxes],
+    arrival: [lot.arrivalPhase.receivedByNexus, lot.arrivalPhase.lagos],
+  };
+  const items = m[lot.status];
+  if (!items) return null;
+  const done = items.filter(Boolean).length;
+  return { done, total: items.length, pct: Math.round(done / items.length * 100) };
+}
+
+// ═══════════════════════════════════════
+// ACTIONS
+// ═══════════════════════════════════════
+function ensureAuction(data) {
+  // Find existing auction by name (case-insensitive) or create new
+  const name = (data.name || '').trim();
+  let a = state.auctions.find(x => x.name.toLowerCase() === name.toLowerCase());
+  if (!a) {
+    a = { id: uuid(), lots: [], name, house: data.house||'', date: data.date||'', url: data.url||'', imageUrl: data.imageUrl||'' };
+    state.auctions.push(a);
+  } else {
+    // Update auction details if provided
+    if (data.house)    a.house    = data.house;
+    if (data.date)     a.date     = data.date;
+    if (data.url)      a.url      = data.url;
+    if (data.imageUrl) a.imageUrl = data.imageUrl;
+  }
+  return a;
+}
+function updateAuction(id, data) {
+  const a = getAuction(id); if (a) Object.assign(a, data); save(); render();
+}
+function deleteAuction(id) {
+  state.auctions = state.auctions.filter(a => a.id !== id); save(); render();
+}
+function makeLot(data) {
+  return {
+    id: uuid(), status: 'pending', lotImageUrl: '', createdAt: Date.now(),
+    wonPhase:     { paid: false, shippingQuotes: false, notes: '' },
+    transitPhase: { paidShipping: false, paidTaxes: false, notes: '' },
+    arrivalPhase: { receivedByNexus: false, lagos: false, notes: '' },
+    ...data
+  };
+}
+function addLotToAuction(auctionId, data) {
+  const a = getAuction(auctionId); if (!a) return;
+  a.lots.push(makeLot(data)); save(); render();
+}
+function updateLot(aId, lId, data) {
+  const a = getAuction(aId); if (!a) return;
+  const l = a.lots.find(x => x.id === lId); if (l) Object.assign(l, data); save();
+}
+function deleteLot(aId, lId) {
+  const a = getAuction(aId); if (!a) return;
+  a.lots = a.lots.filter(l => l.id !== lId);
+  if (a.lots.length === 0) state.auctions = state.auctions.filter(x => x.id !== aId);
+  save(); render();
+}
+function setStatus(aId, lId, status) { updateLot(aId, lId, { status }); save(); render(); }
+function setPhaseField(aId, lId, phase, field, value) {
+  const l = getLot(aId, lId); if (l) l[phase][field] = value; save();
+}
+
+// ═══════════════════════════════════════
+// UI STATE
+// ═══════════════════════════════════════
+let ui = { modal: null, confirm: null, pendingSort: 'recent' };
+function setPendingSort(mode) { ui.pendingSort = mode; render(); }
+function openModal(type, data={}) { ui.modal = { type, data }; render(); }
+function closeModal() { ui.modal = null; render(); }
+function confirm(msg, onYes) { ui.confirm = { msg, onYes }; render(); }
+function closeConfirm() { ui.confirm = null; render(); }
+function toast(msg) {
+  const el = document.createElement('div');
+  el.className = 'toast'; el.textContent = msg;
+  document.body.appendChild(el); setTimeout(() => el.remove(), 2400);
+}
+
+// ═══════════════════════════════════════
+// NAV
+// ═══════════════════════════════════════
+function renderNav() {
+  const tabs = [
+    { id:'pipeline', label:'Pipeline' },
+    { id:'lots',     label:'Lots' },
+    { id:'lost',     label:'Lost & Passed' },
+  ];
+  return `<nav class="nav">
+    <div class="nav-brand">Auction Tracker</div>
+    <div class="nav-tabs">${tabs.map(t=>`<div class="nav-tab${state.view===t.id?' active':''}" onclick="setView('${t.id}')">${t.label}</div>`).join('')}</div>
+    <div style="width:160px;text-align:right">
+      <button class="btn btn-sm" style="background:rgba(255,255,255,.12);color:#fff;border:1px solid rgba(255,255,255,.2)" onclick="openModal('newLot',{})">+ New Lot</button>
+    </div>
+  </nav>`;
+}
+
+// ═══════════════════════════════════════
+// PIPELINE VIEW
+// ═══════════════════════════════════════
+function renderPipeline() {
+  const won = lotsByStatus('won'), transit = lotsByStatus('transit'),
+        arrival = lotsByStatus('arrival'), archived = lotsByStatus('archived');
+  let pending = lotsByStatus('pending');
+
+  if (ui.pendingSort === 'soonest') {
+    // Lots whose auction has no date yet sort to the end, not the top
+    pending = [...pending].sort((a,b) => {
+      const da = a.auctionDate ? new Date(a.auctionDate).getTime() : Infinity;
+      const db = b.auctionDate ? new Date(b.auctionDate).getTime() : Infinity;
+      return da - db;
+    });
+  } else {
+    pending = [...pending].sort((a,b) => (b.createdAt||0) - (a.createdAt||0));
+  }
+
+  const cols = [
+    { key:'pending',  label:'Pending',   lots: pending },
+    { key:'won',      label:'Won Lots',  lots: won },
+    { key:'transit',  label:'Transit',   lots: transit },
+    { key:'arrival',  label:'Arrival',   lots: arrival },
+    { key:'archived', label:'Archived',  lots: archived },
+  ];
+
+  function tile(lot) {
+    const prog = phaseProgress(lot);
+    const progBar = prog ? `<div class="prog-bar"><div class="prog-bar-fill prog-${lot.status}" style="width:${prog.pct}%"></div></div>` : '';
+    const dateStr = lot.status === 'pending' && lot.auctionDate ? fmtDate(lot.auctionDate) : '';
+    const metaLine = `Lot ${esc(lot.lotNumber||'—')}${lot.estimate?' · '+esc(lot.estimate):''}${dateStr?' · '+dateStr:''}`;
+    if (lot.lotImageUrl) {
+      return `<div class="phase-tile" onclick="openModal('lotDetail',{auctionId:'${lot.auctionId}',lotId:'${lot.id}'})" title="${escA(lot.name)}">
+        ${progBar}
+        <img src="${escA(proxyImg(lot.lotImageUrl))}" alt="" onerror="this.parentElement.classList.add('no-image');this.remove()">
+        <div class="phase-tile-caption">
+          <div class="ptc-name">${esc(lot.name)}</div>
+          <div class="ptc-meta">${metaLine}</div>
+        </div>
+      </div>`;
+    }
+    return `<div class="phase-tile no-image" onclick="openModal('lotDetail',{auctionId:'${lot.auctionId}',lotId:'${lot.id}'})" title="${escA(lot.name)}">
+      ${progBar}
+      <div class="ph-icon">🖼</div>
+      <div class="ph-label">${esc(lot.name)}</div>
+    </div>`;
+  }
+
+  return `<div class="main">
+    <div class="page-header">
+      <div class="page-title">Pipeline</div>
+      <button class="btn btn-primary" onclick="openModal('newLot',{})">+ New Lot</button>
+    </div>
+    <div class="stats-bar">
+      <div class="stat-card"><div class="stat-num">${pending.length}</div><div class="stat-label">Pending</div></div>
+      <div class="stat-card won"><div class="stat-num won">${won.length}</div><div class="stat-label">Won</div></div>
+      <div class="stat-card transit"><div class="stat-num transit">${transit.length}</div><div class="stat-label">Transit</div></div>
+      <div class="stat-card arrival"><div class="stat-num arrival">${arrival.length}</div><div class="stat-label">Arrival</div></div>
+      <div class="stat-card archived"><div class="stat-num archived">${archived.length}</div><div class="stat-label">Archived</div></div>
+    </div>
+    <div class="pipeline">${cols.map(c=>`
+      <div class="phase-section">
+        <div class="phase-col-header ${c.key}">
+          <span>${c.label}</span>
+          <span style="display:flex;align-items:center;gap:10px">
+            ${c.key==='pending' ? `
+            <span class="pending-sort-toggle" style="display:flex;gap:4px">
+              <button class="btn btn-sm" style="background:${ui.pendingSort==='recent'?'rgba(255,255,255,.28)':'rgba(255,255,255,.08)'};color:#fff;border:1px solid rgba(255,255,255,.3);font-size:9px;padding:3px 8px" onclick="setPendingSort('recent')">Most Recent</button>
+              <button class="btn btn-sm" style="background:${ui.pendingSort==='soonest'?'rgba(255,255,255,.28)':'rgba(255,255,255,.08)'};color:#fff;border:1px solid rgba(255,255,255,.3);font-size:9px;padding:3px 8px" onclick="setPendingSort('soonest')">Starting Soonest</button>
+            </span>` : ''}
+            <span class="phase-count">${c.lots.length}</span>
+          </span>
+        </div>
+        <div class="phase-grid">${c.lots.length ? c.lots.map(tile).join('') : '<div class="empty-col">No lots</div>'}</div>
+      </div>`).join('')}
+    </div>
+    ${state.auctions.length===0?`<div class="empty-state" style="margin-top:40px">
+      <div class="empty-state-icon">🏛️</div>
+      <div class="empty-state-title">No lots yet</div>
+      <div class="empty-state-text">Add your first lot to start tracking it through the pipeline.</div>
+      <button class="btn btn-primary" onclick="openModal('newLot',{})">+ New Lot</button>
+    </div>`:''}
+  </div>`;
+}
+
+// ═══════════════════════════════════════
+// LOTS VIEW
+// ═══════════════════════════════════════
+function renderLots() {
+  if (state.auctions.length === 0) return `<div class="main">
+    <div class="page-header"><div class="page-title">Lots</div><button class="btn btn-primary" onclick="openModal('newLot',{})">+ New Lot</button></div>
+    <div class="empty-state"><div class="empty-state-icon">🏛️</div><div class="empty-state-title">No lots yet</div>
+    <div class="empty-state-text">Create your first lot. The auction details are added as part of the lot.</div>
+    <button class="btn btn-primary" onclick="openModal('newLot',{})">+ New Lot</button></div></div>`;
+
+  const groups = state.auctions.map(a => {
+    const activeLots = a.lots.filter(l => !['lost','passed'].includes(l.status));
+    const removedLots = a.lots.filter(l => ['lost','passed'].includes(l.status));
+
+    function lotRow(l, faded) {
+      const thumb = l.lotImageUrl ? `<img class="lot-row-thumb" src="${escA(proxyImg(l.lotImageUrl))}" alt="" onerror="this.style.display='none'">` : '';
+      const btns = l.status === 'pending'
+        ? `<button class="btn btn-sm btn-won" onclick="event.stopPropagation();setStatus('${a.id}','${l.id}','won');toast('Marked Won')">Won</button>
+           <button class="btn btn-sm btn-lost" onclick="event.stopPropagation();setStatus('${a.id}','${l.id}','lost');toast('Marked Lost')">Lost</button>
+           <button class="btn btn-sm btn-passed" onclick="event.stopPropagation();setStatus('${a.id}','${l.id}','passed');toast('Marked Passed')">Passed</button>`
+        : badge(l.status);
+      return `<div class="lot-row" style="${faded?'opacity:.45':''}" onclick="openModal('lotDetail',{auctionId:'${a.id}',lotId:'${l.id}'})">
+        ${thumb}
+        <div class="lot-row-num">Lot ${esc(l.lotNumber||'—')}</div>
+        <div class="lot-row-info">
+          <div class="lot-row-name">${esc(l.name)}</div>
+          ${l.estimate?`<div class="lot-row-estimate">Est. ${esc(l.estimate)}</div>`:''}
+        </div>
+        <div class="lot-row-actions" onclick="event.stopPropagation()">
+          ${btns}
+          <button class="btn btn-xs btn-outline" onclick="openModal('editLot',{auctionId:'${a.id}',lotId:'${l.id}'})">Edit</button>
+          <button class="btn btn-xs btn-ghost" onclick="confirm('Delete this lot?',()=>{deleteLot('${a.id}','${l.id}');toast('Lot deleted')})">✕</button>
+        </div>
+      </div>`;
+    }
+
+    const imgEl = a.imageUrl ? `<img class="auction-group-img" src="${escA(proxyImg(a.imageUrl))}" alt="" onerror="this.style.display='none'">` : '';
+
+    return `<div class="auction-group">
+      <div class="auction-group-header">
+        ${imgEl}
+        <div class="auction-group-info">
+          <div class="auction-group-name">${esc(a.name)}</div>
+          <div class="auction-group-sub">
+            ${a.house?`<span>${esc(a.house)}</span>`:''}
+            ${a.date?`<span>${fmtDate(a.date)}</span>`:''}
+            ${a.url?`<a href="${escA(a.url)}" target="_blank" onclick="event.stopPropagation()">↗ Open</a>`:''}
+            <span style="color:#bbb">${activeLots.length} lot${activeLots.length!==1?'s':''}</span>
+          </div>
+        </div>
+        <div class="auction-group-actions">
+          <button class="btn btn-sm btn-outline" onclick="openModal('editAuction',{id:'${a.id}'})">Edit Sale</button>
+          <button class="btn btn-sm btn-outline" style="color:var(--lost);border-color:#f7c5c5" onclick="confirm('Delete this auction and all its lots?',()=>{deleteAuction('${a.id}');toast('Deleted')})">Delete</button>
+        </div>
+      </div>
+      ${activeLots.map(l => lotRow(l, false)).join('')}
+      ${removedLots.length?`<div class="lot-group-label">Lost / Passed</div>${removedLots.map(l=>lotRow(l,true)).join('')}`:''}
+      <button class="btn btn-add-sub" onclick="openModal('newLot',{auctionId:'${a.id}'})">+ Add another lot from this auction</button>
+    </div>`;
+  }).join('');
+
+  return `<div class="main">
+    <div class="page-header"><div class="page-title">Lots</div><button class="btn btn-primary" onclick="openModal('newLot',{})">+ New Lot</button></div>
+    <div class="lots-list">${groups}</div>
+  </div>`;
+}
+
+// ═══════════════════════════════════════
+// LOST VIEW
+// ═══════════════════════════════════════
+function renderLost() {
+  const lost = [...lotsByStatus('lost'), ...lotsByStatus('passed')];
+  if (!lost.length) return `<div class="main"><div class="page-header"><div class="page-title">Lost & Passed</div></div>
+    <div class="empty-state"><div class="empty-state-icon">📋</div><div class="empty-state-title">Nothing here</div>
+    <div class="empty-state-text">Lots marked as lost or passed will appear here.</div></div></div>`;
+  return `<div class="main">
+    <div class="page-header"><div class="page-title">Lost & Passed</div></div>
+    <div class="lost-table">${lost.map(l => {
+      const a = getAuction(l.auctionId);
+      return `<div class="lot-row">
+        <div class="lot-row-num">Lot ${esc(l.lotNumber||'—')}</div>
+        <div class="lot-row-info"><div class="lot-row-name">${esc(l.name)}</div><div class="lot-row-estimate">${esc(a?.name||'')}</div></div>
+        <div class="lot-row-actions">${badge(l.status)}
+          <button class="btn btn-xs btn-outline" onclick="setStatus('${l.auctionId}','${l.id}','pending');toast('Restored')">Restore</button>
+          <button class="btn btn-xs btn-danger" onclick="confirm('Delete this lot?',()=>{deleteLot('${l.auctionId}','${l.id}');toast('Deleted')})">Delete</button>
+        </div></div>`;
+    }).join('')}</div></div>`;
+}
+
+// ═══════════════════════════════════════
+// MODALS
+// ═══════════════════════════════════════
+function renderModal() {
+  if (!ui.modal) return '';
+  const { type, data } = ui.modal;
+  let inner = '';
+
+  // ── New Lot (unified: lot + auction) ──
+  if (type === 'newLot') {
+    const existingAuction = data.auctionId ? getAuction(data.auctionId) : null;
+    const auctionOptions = state.auctions.map(a =>
+      `<option value="${escA(a.id)}" ${existingAuction?.id===a.id?'selected':''}>${esc(a.name)}</option>`
+    ).join('');
+
+    inner = `
+      <div class="modal-header">
+        <div><div class="modal-title">New Lot</div>
+          ${existingAuction?`<div class="modal-subtitle">Adding to: ${esc(existingAuction.name)}</div>`:''}
+        </div>
+        <button class="modal-close" onclick="closeModal()">×</button>
+      </div>
+      <div class="modal-body">
+
+        <!-- IMPORT -->
+        <div class="import-box">
+          <div style="font-family:Arial;font-size:12px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--transit);margin-bottom:8px">Import from Lot URL</div>
+          <p style="font-family:Arial;font-size:12px;color:var(--muted);margin-bottom:10px;line-height:1.5">Paste the lot page URL from Sotheby's, Christie's, Bonhams, Phillips etc. and click <strong>Fetch</strong> — title, estimate, image and description will be auto-filled.</p>
+          <div class="import-row">
+            <input class="form-input" id="import-url" placeholder="https://www.sothebys.com/lot/… or christies.com, bonhams.com…" style="flex:1;background:#fff">
+            <button class="btn btn-transit" onclick="importLotFromUrl()">Fetch</button>
+          </div>
+          <div class="import-status" id="import-status"></div>
+          <div class="image-preview" id="lot-img-preview"></div>
+          <div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--border)">
+            <div class="form-label" style="margin-bottom:6px">Image didn't come through, or no URL to import? Add it directly:</div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap">
+              <button type="button" class="btn btn-primary btn-sm" onclick="document.getElementById('lot-img-camera-input').click()">📷 Take Photo</button>
+              <button type="button" class="btn btn-outline btn-sm" onclick="document.getElementById('lot-img-file-input').click()">🖼 Upload File</button>
+            </div>
+            <input type="file" accept="image/*" capture="environment" id="lot-img-camera-input" style="display:none" onchange="handleLotImageFile(this)">
+            <input type="file" accept="image/*" id="lot-img-file-input" style="display:none" onchange="handleLotImageFile(this)">
+          </div>
+          <div class="paste-fallback" id="paste-fallback">
+            <div class="form-label" style="margin-top:8px;margin-bottom:6px">Or paste the lot page text</div>
+            <textarea class="form-input" id="paste-text" rows="4" placeholder="Select all text on the lot page (Ctrl+A / Cmd+A) → copy → paste here…"></textarea>
+            <button class="btn btn-outline btn-sm" style="margin-top:8px" onclick="parseFromPasted()">Extract Fields</button>
+          </div>
+        </div>
+
+        <hr class="import-divider">
+
+        <!-- LOT FIELDS -->
+        <div class="section-label">Lot Details</div>
+        <div class="form-group">
+          <label class="form-label">Lot Title / Artist & Work *</label>
+          <input class="form-input" id="f-name" placeholder="e.g. Twins Seven Seven — Untitled Composition">
+        </div>
+        <div class="form-row">
+          <div class="form-group"><label class="form-label">Lot Number</label><input class="form-input" id="f-lotnum" placeholder="42"></div>
+          <div class="form-group"><label class="form-label">Estimate</label><input class="form-input" id="f-estimate" placeholder="£2,000 – 3,000"></div>
+        </div>
+        <div class="form-group"><label class="form-label">Description</label><textarea class="form-input" id="f-desc" placeholder="Medium, size, provenance…"></textarea></div>
+        <div class="form-row">
+          <div class="form-group"><label class="form-label">Hammer Price</label><input class="form-input" id="f-hammer" placeholder="£2,500"></div>
+          <div class="form-group"><label class="form-label">Lot URL</label><input class="form-input" id="f-loturl" placeholder="https://…"></div>
+        </div>
+        <div class="form-group" style="display:none"><input class="form-input" id="f-imageurl"></div>
+
+        <hr class="import-divider">
+
+        <!-- AUCTION SECTION -->
+        <div class="section-label">Auction</div>
+        ${state.auctions.length > 0 ? `
+        <div class="form-group">
+          <label class="form-label">Add to existing auction</label>
+          <select class="form-input form-select" id="auction-select" onchange="handleAuctionSelect()">
+            <option value="">— New auction (fill in below) —</option>
+            ${auctionOptions}
+          </select>
+        </div>` : ''}
+
+        <div class="auction-section" id="auction-section" ${existingAuction?'style="opacity:.6;pointer-events:none"':''}>
+          <div class="form-group">
+            <label class="form-label">Auction / Sale Name *</label>
+            <input class="form-input" id="f-auction-name" value="${escA(existingAuction?.name||'')}" placeholder="e.g. African & Oceanic Art Evening Sale">
+          </div>
+          <div class="form-row">
+            <div class="form-group"><label class="form-label">Auction House</label><input class="form-input" id="f-auction-house" value="${escA(existingAuction?.house||'')}" placeholder="Sotheby's, Christie's…"></div>
+            <div class="form-group"><label class="form-label">Date</label><input class="form-input" type="date" id="f-auction-date" value="${escA(existingAuction?.date||'')}"></div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Auction URL</label>
+            <div style="display:flex;gap:8px">
+              <input class="form-input" id="f-auction-url" value="${escA(existingAuction?.url||'')}" placeholder="https://…" style="flex:1" oninput="updateAuctionUrlBtn()">
+              <a id="auction-url-btn" href="${escA(existingAuction?.url||'#')}" target="_blank" class="btn btn-outline btn-sm" style="${existingAuction?.url?'':'display:none;'}white-space:nowrap;text-decoration:none">↗ Open</a>
+            </div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Auction Cover Image URL</label>
+            <input class="form-input" id="f-auction-image" value="${escA(existingAuction?.imageUrl||'')}" placeholder="https://… (auto-filled or paste)">
+            ${existingAuction?.imageUrl?`<div class="image-preview show" style="margin-top:8px"><img src="${escA(proxyImg(existingAuction.imageUrl))}" style="max-width:100%;max-height:100px;border-radius:4px;border:1px solid var(--border);object-fit:cover" onerror="this.style.display='none'"></div>`:''}
+          </div>
+        </div>
+
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-outline" onclick="closeModal()">Cancel</button>
+        <button class="btn btn-primary" onclick="submitNewLot()">Add Lot</button>
+      </div>`;
+  }
+
+  // ── Edit Auction ──
+  else if (type === 'editAuction') {
+    const a = getAuction(data.id); if (!a) return '';
+    inner = `
+      <div class="modal-header">
+        <div><div class="modal-title">Edit Auction</div></div>
+        <button class="modal-close" onclick="closeModal()">×</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group"><label class="form-label">Sale Name</label><input class="form-input" id="f-name" value="${escA(a.name)}"></div>
+        <div class="form-row">
+          <div class="form-group"><label class="form-label">Auction House</label><input class="form-input" id="f-house" value="${escA(a.house||'')}"></div>
+          <div class="form-group"><label class="form-label">Date</label><input class="form-input" type="date" id="f-date" value="${escA(a.date||'')}"></div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Auction URL</label>
+          <div style="display:flex;gap:8px">
+            <input class="form-input" id="f-url" value="${escA(a.url||'')}" style="flex:1" oninput="updateAuctionUrlBtn()">
+            <a id="auction-url-btn" href="${escA(a.url||'#')}" target="_blank" class="btn btn-outline btn-sm" style="${a.url?'':'display:none;'}white-space:nowrap;text-decoration:none">↗ Open</a>
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Cover Image URL</label>
+          <input class="form-input" id="f-imageurl" value="${escA(a.imageUrl||'')}" placeholder="https://…">
+          ${a.imageUrl?`<div class="image-preview show" style="margin-top:8px"><img src="${escA(proxyImg(a.imageUrl))}" style="max-width:100%;max-height:120px;object-fit:cover;border-radius:4px;border:1px solid var(--border)" onerror="this.style.display='none'"></div>`:''}
+        </div>
+        <div class="form-group"><label class="form-label">Notes</label><textarea class="form-input" id="f-notes">${esc(a.notes||'')}</textarea></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-outline" onclick="closeModal()">Cancel</button>
+        <button class="btn btn-primary" onclick="submitEditAuction('${a.id}')">Save</button>
+      </div>`;
+  }
+
+  // ── Edit Lot ──
+  else if (type === 'editLot') {
+    const l = getLot(data.auctionId, data.lotId); if (!l) return '';
+    inner = `
+      <div class="modal-header">
+        <div><div class="modal-title">Edit Lot</div></div>
+        <button class="modal-close" onclick="closeModal()">×</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group"><label class="form-label">Title / Artist & Work</label><input class="form-input" id="f-name" value="${escA(l.name)}"></div>
+        <div class="form-row">
+          <div class="form-group"><label class="form-label">Lot Number</label><input class="form-input" id="f-lotnum" value="${escA(l.lotNumber||'')}"></div>
+          <div class="form-group"><label class="form-label">Estimate</label><input class="form-input" id="f-estimate" value="${escA(l.estimate||'')}"></div>
+        </div>
+        <div class="form-group"><label class="form-label">Description</label><textarea class="form-input" id="f-desc">${esc(l.description||'')}</textarea></div>
+        <div class="form-row">
+          <div class="form-group"><label class="form-label">Hammer Price</label><input class="form-input" id="f-hammer" value="${escA(l.hammerPrice||'')}"></div>
+          <div class="form-group"><label class="form-label">Lot URL</label><input class="form-input" id="f-loturl" value="${escA(l.lotUrl||'')}"></div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Lot Image URL</label>
+          <input class="form-input" id="f-imageurl" value="${escA(l.lotImageUrl||'')}" placeholder="https://…">
+          <div style="background:var(--surface2);border:1px dashed var(--border);border-radius:6px;padding:12px;margin-top:8px">
+            <div style="display:flex;gap:8px;flex-wrap:wrap">
+              <button type="button" class="btn btn-primary btn-sm" onclick="document.getElementById('lot-img-camera-input').click()">📷 Take Photo</button>
+              <button type="button" class="btn btn-outline btn-sm" onclick="document.getElementById('lot-img-file-input').click()">🖼 Upload File</button>
+            </div>
+          </div>
+          <input type="file" accept="image/*" capture="environment" id="lot-img-camera-input" style="display:none" onchange="handleLotImageFile(this)">
+          <input type="file" accept="image/*" id="lot-img-file-input" style="display:none" onchange="handleLotImageFile(this)">
+          <div class="image-preview ${l.lotImageUrl?'show':''}" id="lot-img-preview" style="margin-top:8px">${l.lotImageUrl?`<img src="${escA(proxyImg(l.lotImageUrl))}" style="max-width:100%;max-height:140px;border-radius:4px;border:1px solid var(--border);object-fit:contain;background:#f8f8f8" onerror="this.style.display='none'">`:''}</div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-outline" onclick="closeModal()">Cancel</button>
+        <button class="btn btn-primary" onclick="submitEditLot('${data.auctionId}','${data.lotId}')">Save</button>
+      </div>`;
+  }
+
+  // ── Lot Detail ──
+  else if (type === 'lotDetail') {
+    const a = getAuction(data.auctionId), l = getLot(data.auctionId, data.lotId);
+    if (!a || !l) return '';
+
+    const phases = ['won','transit','arrival','archived'];
+    const phaseIndex = phases.indexOf(l.status);
+    let phaseBlocks = '';
+
+    if (phaseIndex >= 0) phaseBlocks += `<div class="phase-block">
+      <div class="phase-block-header won">Won Lots</div>
+      <div class="phase-block-body">
+        ${chk('wp-paid', l.wonPhase.paid, 'Paid for lot', data.auctionId, data.lotId, 'wonPhase','paid')}
+        ${chk('wp-sq',   l.wonPhase.shippingQuotes, 'Shipping quotes obtained', data.auctionId, data.lotId, 'wonPhase','shippingQuotes')}
+        <div class="phase-notes"><div class="phase-notes-label">Notes</div>
+          <textarea class="form-input" rows="2" placeholder="Payments, contacts, references…"
+            onblur="setPhaseField('${data.auctionId}','${data.lotId}','wonPhase','notes',this.value)"
+          >${esc(l.wonPhase.notes)}</textarea></div>
+      </div></div>`;
+
+    if (phaseIndex >= 1) phaseBlocks += `<div class="phase-block">
+      <div class="phase-block-header transit">Transit</div>
+      <div class="phase-block-body">
+        ${chk('tp-ps', l.transitPhase.paidShipping, 'Paid for shipping', data.auctionId, data.lotId, 'transitPhase','paidShipping')}
+        ${chk('tp-pt', l.transitPhase.paidTaxes,    'Paid for taxes / customs', data.auctionId, data.lotId, 'transitPhase','paidTaxes')}
+        <div class="phase-notes"><div class="phase-notes-label">Notes</div>
+          <textarea class="form-input" rows="2" placeholder="Shipper, tracking, insurance…"
+            onblur="setPhaseField('${data.auctionId}','${data.lotId}','transitPhase','notes',this.value)"
+          >${esc(l.transitPhase.notes)}</textarea></div>
+      </div></div>`;
+
+    if (phaseIndex >= 2) phaseBlocks += `<div class="phase-block">
+      <div class="phase-block-header arrival">Arrival</div>
+      <div class="phase-block-body">
+        ${chk('ap-rn', l.arrivalPhase.receivedByNexus, 'Received by Nexus Cargo', data.auctionId, data.lotId, 'arrivalPhase','receivedByNexus')}
+        ${chk('ap-lg', l.arrivalPhase.lagos,            'Delivered — Lagos / Gallery', data.auctionId, data.lotId, 'arrivalPhase','lagos')}
+        <div class="phase-notes"><div class="phase-notes-label">Notes</div>
+          <textarea class="form-input" rows="2" placeholder="Arrival date, condition, placement…"
+            onblur="setPhaseField('${data.auctionId}','${data.lotId}','arrivalPhase','notes',this.value)"
+          >${esc(l.arrivalPhase.notes)}</textarea></div>
+      </div></div>`;
+
+    if (phaseIndex === 3) phaseBlocks += `<div class="phase-block"><div class="phase-block-header archived">Archived</div></div>`;
+
+    const nextMap = { pending:null, won:{next:'transit',label:'Move to Transit',cls:'btn-transit'}, transit:{next:'arrival',label:'Move to Arrival — Nexus',cls:'btn-arrival'}, arrival:{next:'archived',label:'Archive',cls:'btn-archive'} };
+    const t = nextMap[l.status];
+    const advBar = t ? `<div class="advance-bar"><div class="advance-label">Ready for the next phase?</div>
+      <button class="btn ${t.cls}" onclick="setStatus('${a.id}','${l.id}','${t.next}');openModal('lotDetail',{auctionId:'${a.id}',lotId:'${l.id}'})">${t.label} →</button></div>` : '';
+
+    const resultBar = l.status === 'pending' ? `<div style="margin-bottom:18px;padding:14px 16px;background:var(--surface2);border-radius:6px;border:1px solid var(--border)">
+      <div class="form-label" style="margin-bottom:10px">Auction Result</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button class="btn btn-won" onclick="setStatus('${a.id}','${l.id}','won');openModal('lotDetail',{auctionId:'${a.id}',lotId:'${l.id}'})">Won</button>
+        <button class="btn btn-lost" onclick="setStatus('${a.id}','${l.id}','lost');closeModal();toast('Marked Lost')">Lost</button>
+        <button class="btn btn-passed" onclick="setStatus('${a.id}','${l.id}','passed');closeModal();toast('Marked Passed')">Passed</button>
+      </div></div>` : '';
+
+    inner = `
+      <div class="modal-header">
+        <div style="flex:1;min-width:0">
+          <div class="modal-title" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(l.name)}</div>
+          <div class="modal-subtitle"><span>${esc(a.name)}</span><span>·</span><span>Lot ${esc(l.lotNumber||'—')}</span><span>·</span>${badge(l.status)}</div>
+        </div>
+        <button class="modal-close" onclick="closeModal()">×</button>
+      </div>
+      <div class="modal-body">
+        ${l.lotImageUrl?`<img class="lot-detail-img" src="${escA(proxyImg(l.lotImageUrl))}" alt="" onerror="this.style.display='none'">` : ''}
+        ${(l.description||l.estimate||l.hammerPrice||l.lotUrl)?`<div class="lot-detail-meta">
+          ${l.estimate?`<div><div class="lot-detail-field-label">Estimate</div><div class="lot-detail-field-val">${esc(l.estimate)}</div></div>`:''}
+          ${l.hammerPrice?`<div><div class="lot-detail-field-label">Hammer Price</div><div class="lot-detail-field-val">${esc(l.hammerPrice)}</div></div>`:''}
+          ${l.lotUrl?`<div style="grid-column:1/-1"><div class="lot-detail-field-label">Listing</div><div class="lot-detail-field-val"><a href="${escA(l.lotUrl)}" target="_blank" style="color:var(--transit);font-family:Arial;font-size:12px">↗ View on auction site</a></div></div>`:''}
+          ${l.description?`<div style="grid-column:1/-1"><div class="lot-detail-field-label">Description</div><div class="lot-detail-field-val" style="font-size:13px;line-height:1.6;color:var(--muted)">${esc(l.description)}</div></div>`:''}
+        </div>`:''}
+        ${resultBar}${phaseBlocks}${advBar}
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-outline btn-sm" onclick="closeModal();openModal('editLot',{auctionId:'${a.id}',lotId:'${l.id}'})">Edit Details</button>
+        <button class="btn btn-primary" onclick="closeModal()">Done</button>
+      </div>`;
+  }
+
+  return `<div class="overlay" onclick="handleOverlay(event)"><div class="modal">${inner}</div></div>`;
+}
+
+function chk(id, checked, label, aId, lId, phase, field) {
+  return `<div class="check-item${checked?' is-checked':''}" id="ci-${id}">
+    <input type="checkbox" id="${id}" ${checked?'checked':''}
+      onchange="toggleCheck('${id}','${aId}','${lId}','${phase}','${field}',this.checked)">
+    <label for="${id}">${label}</label></div>`;
+}
+
+function renderConfirm() {
+  if (!ui.confirm) return '';
+  return `<div class="confirm-overlay"><div class="confirm-box">
+    <div class="confirm-title">Are you sure?</div>
+    <div class="confirm-msg">${ui.confirm.msg}</div>
+    <div class="confirm-btns">
+      <button class="btn btn-outline" onclick="closeConfirm()">Cancel</button>
+      <button class="btn btn-danger" onclick="ui.confirm.onYes();closeConfirm()">Delete</button>
+    </div></div></div>`;
+}
+
+// ═══════════════════════════════════════
+// RENDER
+// ═══════════════════════════════════════
+function render() {
+  let body = state.view==='pipeline' ? renderPipeline() : state.view==='lots' ? renderLots() : renderLost();
+  document.getElementById('app').innerHTML = renderNav() + body + renderModal() + renderConfirm();
+}
+
+// ═══════════════════════════════════════
+// EVENT HANDLERS
+// ═══════════════════════════════════════
+function setView(v) { state.view = v; render(); }
+function handleOverlay(e) { if (e.target.classList.contains('overlay')) closeModal(); }
+
+function handleAuctionSelect() {
+  const sel = document.getElementById('auction-select');
+  const sec = document.getElementById('auction-section');
+  if (!sel || !sec) return;
+  const aId = sel.value;
+  const a = aId ? getAuction(aId) : null;
+  sec.style.opacity = a ? '.6' : '1';
+  sec.style.pointerEvents = a ? 'none' : '';
+  if (a) {
+    const s = (id, val) => { const el = document.getElementById(id); if (el) el.value = val || ''; };
+    s('f-auction-name',  a.name);
+    s('f-auction-house', a.house);
+    s('f-auction-date',  a.date);
+    s('f-auction-url',   a.url);
+    s('f-auction-image', a.imageUrl);
+    updateAuctionUrlBtn();
+  }
+}
+
+function updateAuctionUrlBtn() {
+  const inp = document.getElementById('f-auction-url') || document.getElementById('f-url');
+  const btn = document.getElementById('auction-url-btn');
+  if (!inp || !btn) return;
+  const v = inp.value.trim();
+  btn.href = v || '#';
+  btn.style.display = v.startsWith('http') ? '' : 'none';
+}
+
+function toggleCheck(id, aId, lId, phase, field, val) {
+  setPhaseField(aId, lId, phase, field, val);
+  document.getElementById('ci-'+id)?.classList.toggle('is-checked', val);
+}
+
+function submitNewLot() {
+  const name = (document.getElementById('f-name')?.value||'').trim();
+  if (!name) { alert('Please enter a lot title.'); return; }
+
+  // Determine auction
+  const sel = document.getElementById('auction-select');
+  let auctionId = sel?.value || '';
+
+  if (!auctionId) {
+    const aName = (document.getElementById('f-auction-name')?.value||'').trim();
+    if (!aName) { alert('Please enter an auction / sale name.'); return; }
+    const a = ensureAuction({
+      name: aName,
+      house:    (document.getElementById('f-auction-house')?.value||'').trim(),
+      date:     document.getElementById('f-auction-date')?.value||'',
+      url:      (document.getElementById('f-auction-url')?.value||'').trim(),
+      imageUrl: (document.getElementById('f-auction-image')?.value||'').trim(),
+    });
+    auctionId = a.id;
+  }
+
+  addLotToAuction(auctionId, {
+    name,
+    lotNumber:   (document.getElementById('f-lotnum')?.value||'').trim(),
+    estimate:    (document.getElementById('f-estimate')?.value||'').trim(),
+    description: (document.getElementById('f-desc')?.value||'').trim(),
+    hammerPrice: (document.getElementById('f-hammer')?.value||'').trim(),
+    lotUrl:      (document.getElementById('f-loturl')?.value||'').trim(),
+    lotImageUrl: (document.getElementById('f-imageurl')?.value||'').trim(),
+  });
+  state.view = 'lots';
+  closeModal();
+  toast('Lot added');
+}
+
+function submitEditAuction(id) {
+  updateAuction(id, {
+    name:     (document.getElementById('f-name')?.value||'').trim(),
+    house:    (document.getElementById('f-house')?.value||'').trim(),
+    date:     document.getElementById('f-date')?.value||'',
+    url:      (document.getElementById('f-url')?.value||'').trim(),
+    imageUrl: (document.getElementById('f-imageurl')?.value||'').trim(),
+    notes:    (document.getElementById('f-notes')?.value||'').trim(),
+  });
+  closeModal(); toast('Auction updated');
+}
+
+function submitEditLot(aId, lId) {
+  updateLot(aId, lId, {
+    name:        (document.getElementById('f-name')?.value||'').trim(),
+    lotNumber:   (document.getElementById('f-lotnum')?.value||'').trim(),
+    estimate:    (document.getElementById('f-estimate')?.value||'').trim(),
+    description: (document.getElementById('f-desc')?.value||'').trim(),
+    hammerPrice: (document.getElementById('f-hammer')?.value||'').trim(),
+    lotUrl:      (document.getElementById('f-loturl')?.value||'').trim(),
+    lotImageUrl: (document.getElementById('f-imageurl')?.value||'').trim(),
+  });
+  save(); closeModal(); toast('Lot updated');
+}
+
+// ═══════════════════════════════════════
+// LOT URL IMPORT (Jina AI)
+// ═══════════════════════════════════════
+async function importLotFromUrl() {
+  const urlEl = document.getElementById('import-url');
+  const url = (urlEl?.value||'').trim();
+  if (!url || !url.startsWith('http')) { setImportStatus('error','✕ Enter a valid URL'); return; }
+  setImportStatus('loading','<span class="spinner"></span> Fetching lot data…');
+  try {
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), 25000);
+    // NOTE: only send CORS-safelisted headers here (Accept is safelisted).
+    // Adding custom headers like X-Return-Format forces a CORS preflight
+    // (an OPTIONS request) that Jina may not answer permissively, which makes
+    // the browser abort the whole request with a generic "failed to fetch" —
+    // no server error, no timeout, just silence. Accept alone is enough to
+    // get JSON back from r.jina.ai.
+    const resp = await fetch(`https://r.jina.ai/${url}`, {
+      signal: ctrl.signal,
+      headers: { 'Accept': 'application/json' }
+    });
+    clearTimeout(t);
+    if (!resp.ok) {
+      let bodyText = '';
+      try { bodyText = await resp.text(); } catch(_) {}
+      console.error('[AuctionTracker] Jina fetch non-OK:', resp.status, bodyText.slice(0,500));
+      if (resp.status === 429) throw new Error('RATE_LIMIT');
+      throw new Error('HTTP_'+resp.status);
+    }
+    const json = await resp.json();
+    const d = json.data || {};
+    const content = d.content || d.text || '';
+    const pageTitle = d.title || '';
+    const jinaImgs = d.images || {};
+
+    // Some auction sites (Bonhams among them) actively bot-wall automated
+    // fetchers — including headless-browser crawlers like Jina's. When that
+    // happens we still get a 200 OK back, but the "page" is a bot-check
+    // shell, not the real lot page: little/no real content, no lot images.
+    // Detect that up front rather than silently parsing junk into fields.
+    const blockSignals = [/checking your browser/i, /just a moment/i, /access denied/i, /are you a human/i,
+      /verify you are human/i, /enable javascript and cookies/i, /request blocked/i, /captcha/i, /cf-browser-verification/i];
+    const combinedForCheck = (pageTitle + ' ' + content).slice(0, 800);
+    const looksBlocked = (content.trim().length < 200) && blockSignals.some(p => p.test(combinedForCheck));
+    if (looksBlocked) throw new Error('BOT_BLOCKED');
+
+    const parsed = parseLotContent(content, pageTitle, url);
+
+    // Image extraction from both sources
+    const mdImgs = [];
+    const mdPat = /!\[[^\]]*\]\((https?:\/\/[^)]+)\)/g; let m;
+    while ((m = mdPat.exec(content)) !== null) mdImgs.push(m[1]);
+    const allImgs = [...new Set([...Object.keys(jinaImgs), ...mdImgs])];
+    const scored = allImgs.map(u => {
+      let s = 0;
+      if (u.match(/\.(jpg|jpeg|png|webp)/i)) s += 10;
+      if (u.match(/lot|artwork|object|item|figure|painting|work/i)) s += 8;
+      if (u.match(/thumbnail|thumb|icon|logo|avatar|banner|sprite|pixel|social/i)) s -= 15;
+      const alt = (jinaImgs[u]||'').toLowerCase();
+      if (alt.match(/lot|artwork|painting|sculpture/i)) s += 5;
+      if (alt.match(/logo|icon|social/i)) s -= 10;
+      return { u, s };
+    }).filter(x => x.s > 0).sort((a,b) => b.s - a.s);
+    const bestImg = scored[0]?.u ? proxyImg(scored[0].u) : '';
+    if (bestImg) parsed.lotImageUrl = bestImg;
+
+    // Also try to fill auction fields from page if not already set
+    const auctionParsed = parseAuctionContent(content, pageTitle, url);
+    if (!document.getElementById('f-auction-name')?.value && auctionParsed.name) {
+      const el = document.getElementById('f-auction-name');
+      if (el) el.value = auctionParsed.name;
+    }
+    if (!document.getElementById('f-auction-house')?.value && auctionParsed.house) {
+      const el = document.getElementById('f-auction-house');
+      if (el) el.value = auctionParsed.house;
+    }
+
+    fillLotForm(parsed, url);
+    const fc = ['name','lotNumber','estimate','description'].filter(k => parsed[k]?.trim()).length;
+    if (fc === 0 && !bestImg) { setImportStatus('warn','⚠️ Could not extract data. Try the paste option below.', true); }
+    else {
+      const parts = [];
+      if (fc) parts.push(fc+' field'+(fc>1?'s':''));
+      if (bestImg) parts.push('image');
+      setImportStatus('success','✓ Imported '+parts.join(' + ')+' — review before saving.');
+    }
+  } catch(err) {
+    console.error('[AuctionTracker] Import failed:', err);
+    let msg = '⚠️ Could not fetch. Try the paste option below.';
+    if (err.name === 'AbortError') msg = '⚠️ Timed out. Try the paste option below.';
+    else if (err.message === 'RATE_LIMIT') msg = '⚠️ Rate limited by the reader service — wait a moment and try again, or use paste below.';
+    else if (err.message === 'BOT_BLOCKED') msg = '⚠️ This site is blocking automated access — copy the lot details manually and use 📷/🖼 to add the photo yourself.';
+    else if (/^HTTP_4/.test(err.message)) msg = '⚠️ That page could not be read (site may be blocking access). Try the paste option below.';
+    else if (/^HTTP_5/.test(err.message)) msg = '⚠️ Reader service error — try again shortly, or use paste below.';
+    else if (err.message === 'Failed to fetch') msg = '⚠️ Network/browser blocked the request (see console for details). Try the paste option below.';
+    setImportStatus('warn', msg, true);
+  }
+}
+
+function parseLotContent(content, pageTitle, url) {
+  const r = { name:'', lotNumber:'', estimate:'', description:'' };
+  if (pageTitle) r.name = pageTitle
+    .replace(/\s*[|\-–]\s*(Sotheby's|Christie's|Bonhams|Phillips|Dreweatts|Roseberys|Swan|Woolley|Tennants).*/i,'')
+    .replace(/^Lot\s+\d+\s*[:\-–]\s*/i,'').trim();
+  r.lotNumber = extractLotNum(url);
+  if (!r.lotNumber) { const m = content.match(/\bLot\s+(?:No\.?\s*)?(\d+)\b/i); if (m) r.lotNumber = m[1]; }
+  for (const p of [/estimate[:\s]+([£$€][^\n]{4,70})/i, /pre[- ]?sale estimate[:\s]+([^\n]{4,70})/i, /([£$€]\s?[\d,]+(?:\s*[–\-]\s*[£$€]?\s?[\d,]+)\s*(?:GBP|USD|EUR|HKD)?)/]) {
+    const m = content.match(p); if (m) { r.estimate = m[1].trim().replace(/\s+/g,' ').substring(0,90); break; }
+  }
+  const lines = content.split('\n').map(l=>l.replace(/^#+\s*/,'').trim()).filter(Boolean);
+  const desc = lines.filter(l => l.length>50 && l.length<700 && !l.match(/^!\[/) && !l.match(/^https?:\/\//) && !l.match(/^(lot|estimate|sold for|bid|hammer|register|sign in|log in|share|print|save|cookie|privacy|terms|follow|subscribe|navigation|menu|search|back to)/i));
+  if (desc.length) r.description = desc.slice(0,4).join(' ').substring(0,600);
+  return r;
+}
+
+function parseAuctionContent(content, pageTitle, url) {
+  const r = { name:'', house:'', date:'' };
+  const houses = ["Sotheby's","Christie's","Bonhams","Phillips","Dreweatts","Roseberys","Swan Galleries","Woolley & Wallis","Tennants","Heritage Auctions","Artcurial","Dorotheum"];
+  if (url.includes('sothebys.com'))     r.house = "Sotheby's";
+  else if (url.includes('christies.com'))  r.house = "Christie's";
+  else if (url.includes('bonhams.com'))    r.house = "Bonhams";
+  else if (url.includes('phillips.com'))   r.house = "Phillips";
+  else if (url.includes('dreweatts.com'))  r.house = "Dreweatts";
+  else if (url.includes('roseberys.co.uk')) r.house = "Roseberys";
+  else if (url.includes('heritage'))       r.house = "Heritage Auctions";
+  else { for (const h of houses) { if ((pageTitle+content).includes(h)) { r.house = h; break; } } }
+  if (pageTitle) r.name = pageTitle.replace(/\s*[|\-–]\s*(Sotheby's|Christie's|Bonhams|Phillips|Dreweatts|Roseberys|Heritage|Artcurial|Dorotheum).*/i,'').replace(/\s*\|\s*(Online|Auction).*/i,'').replace(/^\s*(Sotheby's|Christie's|Bonhams|Phillips)\s*[|\-–:]\s*/i,'').trim();
+  const months = {january:'01',february:'02',march:'03',april:'04',may:'05',june:'06',july:'07',august:'08',september:'09',october:'10',november:'11',december:'12'};
+  for (const p of [/(\d{1,2})\s+(January|February|March|April|May|June|July|August|September|October|November|December)\s+(\d{4})/i, /(\d{4})-(\d{2})-(\d{2})/, /(January|February|March|April|May|June|July|August|September|October|November|December)\s+(\d{1,2}),?\s+(\d{4})/i]) {
+    const m = (content||pageTitle).match(p);
+    if (m) {
+      if (m[0].match(/\d{4}-\d{2}-\d{2}/)) r.date = m[0];
+      else if (m[1]?.match(/\d+/) && m[2] && m[3]) { const mm = months[m[2].toLowerCase()]; if (mm) r.date=`${m[3]}-${mm}-${m[1].padStart(2,'0')}`; }
+      else if (!m[1]?.match(/\d+/) && m[2] && m[3]) { const mm = months[m[1].toLowerCase()]; if (mm) r.date=`${m[3]}-${mm}-${m[2].padStart(2,'0')}`; }
+      if (r.date) break;
+    }
+  }
+  return r;
+}
+
+function extractLotNum(url) {
+  const m = url.match(/\/lot[s]?[_\-]?\/(\d+)/i) || url.match(/[?&]lot[_]?(?:no|num|number)?=(\d+)/i) || url.match(/[_\-](\d{3,6})\/?(?:[?#]|$)/);
+  return m ? m[1] : '';
+}
+
+function proxyImg(url) {
+  if (!url) return '';
+  if (url.startsWith('data:')) return url; // embedded/uploaded image — already local, never proxy it
+  if (url.includes('wsrv.nl')||url.includes('weserv.nl')) return url;
+  return `https://wsrv.nl/?url=${encodeURIComponent(url.replace(/^https?:\/\//,''))}&w=800&output=jpg&q=85`;
+}
+
+function fillLotForm(data, url) {
+  const set = (id,val) => { const el=document.getElementById(id); if (el && val && !el.value) el.value=val; };
+  set('f-name', data.name); set('f-lotnum', data.lotNumber);
+  set('f-estimate', data.estimate); set('f-desc', data.description);
+  if (url) set('f-loturl', url);
+  if (data.lotImageUrl) {
+    set('f-imageurl', data.lotImageUrl);
+    const prev = document.getElementById('lot-img-preview');
+    if (prev) {
+      prev.style.display = 'block';
+      prev.innerHTML = `<img src="${escA(data.lotImageUrl)}" style="max-width:100%;max-height:160px;border-radius:5px;border:1px solid var(--border);object-fit:contain;background:#f8f8f8;margin-top:8px" onerror="this.parentElement.style.display='none'">`;
+    }
+  }
+}
+
+function setImportStatus(type, html, showPaste) {
+  const el = document.getElementById('import-status'); if (!el) return;
+  el.className = `import-status show ${type}`; el.innerHTML = html;
+  if (showPaste) { const p = document.getElementById('paste-fallback'); if (p) p.className='paste-fallback show'; }
+}
+
+function parseFromPasted() {
+  const raw = (document.getElementById('paste-text')?.value||'').trim(); if (!raw) return;
+  const lines = raw.split('\n').map(l=>l.trim()).filter(Boolean);
+  const r = {};
+  const lm = raw.match(/\bLot\s+(?:No\.?\s*)?(\d+)\b/i); if (lm) r.lotNumber = lm[1];
+  for (const p of [/estimate[:\s]+([£$€][^\n]{4,70})/i, /([£$€]\s?[\d,]+(?:\s*[–\-]\s*[£$€]?\s?[\d,]+))/]) {
+    const m = raw.match(p); if (m) { r.estimate = m[1].trim().replace(/\s+/g,' ').substring(0,90); break; }
+  }
+  const nl = lines.find(l => l.length>=8 && l.length<=200 && !l.match(/^https?:\/\//) && !l.match(/^[£$€\d]/) && !l.match(/^(lot|estimate|sold|bid|register|log|sign|share|print|save|cookie)/i));
+  if (nl) r.name = nl;
+  const dl = lines.filter(l => l.length>60 && !l.match(/^https?:\/\//));
+  if (dl.length) r.description = dl.slice(0,3).join(' ').substring(0,500);
+  fillLotForm(r,'');
+  setImportStatus('success','✓ Fields pre-filled — review before saving.');
+}
+
+// ═══════════════════════════════════════
+// LOT IMAGE UPLOAD (camera / file)
+// ═══════════════════════════════════════
+function handleLotImageFile(inputEl) {
+  const file = inputEl.files && inputEl.files[0];
+  inputEl.value = ''; // allow re-selecting the same file later
+  if (!file) return;
+  if (!file.type.startsWith('image/')) { toast('Please choose an image file'); return; }
+
+  const prev = document.getElementById('lot-img-preview');
+  if (prev) { prev.style.display = 'block'; prev.innerHTML = '<span style="font-family:Arial;font-size:12px;color:var(--muted)">Processing photo…</span>'; }
+
+  compressImageFile(file, 1200, 0.82)
+    .then(dataUrl => {
+      const el = document.getElementById('f-imageurl');
+      if (el) el.value = dataUrl;
+      if (prev) {
+        prev.innerHTML = `<img src="${dataUrl}" style="max-width:100%;max-height:160px;border-radius:5px;border:1px solid var(--border);object-fit:contain;background:#f8f8f8">`;
+      }
+    })
+    .catch(err => {
+      console.error('[AuctionTracker] Image processing failed:', err);
+      if (prev) prev.innerHTML = '';
+      toast('Could not process that photo');
+    });
+}
+
+// Resizes an image file to fit within maxDim (longest side) and re-encodes
+// as JPEG at the given quality, returning a data URL. Keeps stored lots
+// small since everything lives in localStorage (~5-10MB total budget).
+function compressImageFile(file, maxDim, quality) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error('read failed'));
+    reader.onload = () => {
+      const img = new Image();
+      img.onerror = () => reject(new Error('decode failed'));
+      img.onload = () => {
+        let { width, height } = img;
+        if (width > maxDim || height > maxDim) {
+          if (width >= height) { height = Math.round(height * (maxDim / width)); width = maxDim; }
+          else { width = Math.round(width * (maxDim / height)); height = maxDim; }
+        }
+        const canvas = document.createElement('canvas');
+        canvas.width = width; canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0, width, height);
+        resolve(canvas.toDataURL('image/jpeg', quality));
+      };
+      img.src = reader.result;
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+// ═══════════════════════════════════════
+// UTILITY
+// ═══════════════════════════════════════
+function badge(s) {
+  const L = {pending:'Pending',won:'Won',transit:'Transit',arrival:'Arrival',archived:'Archived',lost:'Lost',passed:'Passed'};
+  return `<span class="badge badge-${s}">${L[s]||s}</span>`;
+}
+function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+function escA(s) { return esc(s); }
+function fmtDate(d) {
+  if (!d) return '';
+  try { return new Date(d+'T00:00:00').toLocaleDateString('en-GB',{day:'numeric',month:'long',year:'numeric'}); } catch(e) { return d; }
+}
+
+// ═══════════════════════════════════════
+// INIT
+// ═══════════════════════════════════════
+render();
+</script>
+</body>
+</html>
