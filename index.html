@@ -455,20 +455,30 @@ function dbFail(action, err) {
   toast(`⚠️ ${action} didn't sync to the cloud — check your connection`);
 }
 
-function ensureAuction(data) {
+async function ensureAuction(data) {
   // Find existing auction by name (case-insensitive) or create new
   const name = (data.name || '').trim();
   let a = state.auctions.find(x => x.name.toLowerCase() === name.toLowerCase());
   if (!a) {
     a = { id: uuid(), lots: [], name, house: data.house||'', date: data.date||'', url: data.url||'', imageUrl: data.imageUrl||'', notes: '' };
     state.auctions.push(a);
-    sb.from('auctions').insert(localAuctionToDbRow(a)).then(({error}) => { if (error) dbFail('Add auction', error); });
+    // IMPORTANT: awaited on purpose. The auction row must actually exist in
+    // Postgres before any lot referencing it (auction_id foreign key) is
+    // inserted — firing both inserts in parallel let the lot insert
+    // sometimes race ahead of the auction insert and get silently rejected,
+    // leaving an empty auction with no lot attached.
+    // No render() here deliberately: the New Lot modal is still open and
+    // mid-submission at this point, and render() would rebuild it from
+    // scratch, wiping out lot fields the caller hasn't read yet.
+    const { error } = await sb.from('auctions').insert(localAuctionToDbRow(a));
+    if (error) { dbFail('Add auction', error); throw error; }
   } else {
     if (data.house)    a.house    = data.house;
     if (data.date)     a.date     = data.date;
     if (data.url)      a.url      = data.url;
     if (data.imageUrl) a.imageUrl = data.imageUrl;
-    sb.from('auctions').update(localAuctionToDbRow(a)).eq('id', a.id).then(({error}) => { if (error) dbFail('Update auction', error); });
+    const { error } = await sb.from('auctions').update(localAuctionToDbRow(a)).eq('id', a.id);
+    if (error) { dbFail('Update auction', error); throw error; }
   }
   return a;
 }
@@ -1124,7 +1134,7 @@ function toggleCheck(id, aId, lId, phase, field, val) {
   document.getElementById('ci-'+id)?.classList.toggle('is-checked', val);
 }
 
-function submitNewLot() {
+async function submitNewLot() {
   const name = (document.getElementById('f-name')?.value||'').trim();
   if (!name) { alert('Please enter a lot title.'); return; }
 
@@ -1135,13 +1145,21 @@ function submitNewLot() {
   if (!auctionId) {
     const aName = (document.getElementById('f-auction-name')?.value||'').trim();
     if (!aName) { alert('Please enter an auction / sale name.'); return; }
-    const a = ensureAuction({
-      name: aName,
-      house:    (document.getElementById('f-auction-house')?.value||'').trim(),
-      date:     document.getElementById('f-auction-date')?.value||'',
-      url:      (document.getElementById('f-auction-url')?.value||'').trim(),
-      imageUrl: (document.getElementById('f-auction-image')?.value||'').trim(),
-    });
+    let a;
+    try {
+      a = await ensureAuction({
+        name: aName,
+        house:    (document.getElementById('f-auction-house')?.value||'').trim(),
+        date:     document.getElementById('f-auction-date')?.value||'',
+        url:      (document.getElementById('f-auction-url')?.value||'').trim(),
+        imageUrl: (document.getElementById('f-auction-image')?.value||'').trim(),
+      });
+    } catch (err) {
+      // ensureAuction already toasted the specific error via dbFail — stop
+      // here rather than attempting to attach a lot to an auction that
+      // may not actually exist in the database.
+      return;
+    }
     auctionId = a.id;
   }
 
