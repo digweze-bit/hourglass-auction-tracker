@@ -23,9 +23,10 @@ body { font-family: Georgia, serif; background: var(--bg); color: var(--text); m
 .nav { background: var(--accent); color: #fff; padding: 0 28px; display: flex; align-items: center; justify-content: space-between; height: 58px; position: sticky; top: 0; z-index: 100; box-shadow: 0 2px 8px rgba(0,0,0,.2); }
 .nav-brand { font-family: Arial,sans-serif; font-size: 14px; letter-spacing: 3px; text-transform: uppercase; font-weight: 300; }
 .nav-tabs { display: flex; height: 100%; }
-.nav-tab { padding: 0 22px; display: flex; align-items: center; cursor: pointer; font-family: Arial,sans-serif; font-size: 11px; letter-spacing: 1.5px; text-transform: uppercase; color: rgba(255,255,255,.55); border-bottom: 2px solid transparent; transition: all .2s; }
+.nav-tab { padding: 0 22px; display: flex; align-items: center; gap: 6px; cursor: pointer; font-family: Arial,sans-serif; font-size: 11px; letter-spacing: 1.5px; text-transform: uppercase; color: rgba(255,255,255,.55); border-bottom: 2px solid transparent; transition: all .2s; }
 .nav-tab:hover { color: rgba(255,255,255,.9); }
 .nav-tab.active { color: #fff; border-bottom-color: #fff; }
+.nav-tab-badge { background: var(--lost); color: #fff; border-radius: 10px; padding: 1px 7px; font-size: 10px; letter-spacing: 0; }
 
 /* MAIN */
 .main { padding: 28px; max-width: 1400px; margin: 0 auto; }
@@ -249,6 +250,13 @@ textarea.form-input { min-height: 72px; resize: vertical; line-height: 1.5; }
 .legacy-banner { background: var(--pending-bg); border-bottom: 1px solid var(--pending); padding: 12px 20px; display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; font-family: Arial,sans-serif; font-size: 13px; }
 .legacy-banner-text { color: #7c4a03; }
 .legacy-banner-actions { display: flex; gap: 8px; flex-shrink: 0; }
+
+.alert-banner { background: var(--lost-bg); border: 1px solid var(--lost); border-radius: 6px; padding: 12px 16px; margin-bottom: 20px; display: flex; gap: 12px; align-items: flex-start; }
+.alert-banner-icon { font-size: 20px; line-height: 1; }
+.alert-banner-title { font-family: Arial,sans-serif; font-weight: bold; font-size: 13px; color: var(--lost); margin-bottom: 6px; }
+.alert-banner-list { display: flex; flex-wrap: wrap; gap: 8px; }
+.alert-chip { background: #fff; border: 1px solid var(--lost); color: var(--lost); font-family: Arial,sans-serif; font-size: 11px; padding: 4px 10px; border-radius: 20px; cursor: pointer; }
+.alert-chip:hover { background: var(--lost); color: #fff; }
 </style>
 </head>
 <body>
@@ -275,7 +283,7 @@ function uuid() {
 // ═══════════════════════════════════════
 // STATE
 // ═══════════════════════════════════════
-let state = { auctions: [], view: 'pipeline' };
+let state = { auctions: [], possibilities: [], view: 'pipeline' };
 let auth = { user: null, checked: false, mode: 'signin', error: '', busy: false };
 let sync = { loading: false, error: '', legacyImport: null }; // legacyImport: null | 'available' | 'importing' | 'done'
 
@@ -292,8 +300,7 @@ function dbLotToLocal(row) {
     estimate: row.estimate||'', description: row.description||'', hammerPrice: row.hammer_price||'',
     lotUrl: row.lot_url||'', lotImageUrl: row.lot_image_url||'',
     wonPhase:     row.won_phase     || { paid:false, shippingQuotes:false, notes:'' },
-    transitPhase: row.transit_phase || { paidShipping:false, paidTaxes:false, notes:'' },
-    arrivalPhase: row.arrival_phase || { receivedByNexus:false, lagos:false, notes:'' },
+    transitPhase: row.transit_phase || { paidShipping:false, paidTaxes:false, receivedByNexus:false, toLagos:false, notes:'' },
     createdAt: row.created_at ? new Date(row.created_at).getTime() : Date.now(),
   };
 }
@@ -302,7 +309,24 @@ function localLotToDbRow(l, auctionId) {
     id: l.id, auction_id: auctionId, status: l.status, name: l.name||'',
     lot_number: l.lotNumber||'', estimate: l.estimate||'', description: l.description||'',
     hammer_price: l.hammerPrice||'', lot_url: l.lotUrl||'', lot_image_url: l.lotImageUrl||'',
-    won_phase: l.wonPhase, transit_phase: l.transitPhase, arrival_phase: l.arrivalPhase,
+    won_phase: l.wonPhase, transit_phase: l.transitPhase,
+  };
+}
+function dbPossibilityToLocal(row) {
+  return {
+    id: row.id, source: row.source||'manual', status: row.status||'new',
+    name: row.name||'', auctionName: row.auction_name||'', auctionHouse: row.auction_house||'',
+    saleDate: row.sale_date||'', lotUrl: row.lot_url||'', imageUrl: row.image_url||'',
+    estimate: row.estimate||'', description: row.description||'', notes: row.notes||'',
+    createdAt: row.created_at ? new Date(row.created_at).getTime() : Date.now(),
+  };
+}
+function localPossibilityToDbRow(p) {
+  return {
+    id: p.id, source: p.source||'manual', status: p.status||'new',
+    name: p.name||'', auction_name: p.auctionName||'', auction_house: p.auctionHouse||'',
+    sale_date: p.saleDate||null, lot_url: p.lotUrl||'', image_url: p.imageUrl||'',
+    estimate: p.estimate||'', description: p.description||'', notes: p.notes||'',
   };
 }
 
@@ -344,16 +368,19 @@ async function handleSignOut() {
 async function loadDataFromSupabase() {
   sync.loading = true; sync.error = ''; render();
   try {
-    const [{ data: auctionRows, error: aErr }, { data: lotRows, error: lErr }] = await Promise.all([
+    const [{ data: auctionRows, error: aErr }, { data: lotRows, error: lErr }, { data: possRows, error: pErr }] = await Promise.all([
       sb.from('auctions').select('*').order('created_at', { ascending: false }),
       sb.from('lots').select('*').order('created_at', { ascending: false }),
+      sb.from('possibilities').select('*').order('created_at', { ascending: false }),
     ]);
     if (aErr) throw aErr;
     if (lErr) throw lErr;
+    if (pErr) throw pErr;
     const byId = {};
     (auctionRows||[]).forEach(row => { byId[row.id] = dbAuctionToLocal(row); });
     (lotRows||[]).forEach(row => { const a = byId[row.auction_id]; if (a) a.lots.push(dbLotToLocal(row)); });
     state.auctions = Object.values(byId);
+    state.possibilities = (possRows||[]).map(dbPossibilityToLocal);
     checkForLegacyLocalData();
   } catch (err) {
     console.error('[AuctionTracker] Load failed:', err);
@@ -397,13 +424,21 @@ async function importLegacyLocalData() {
           try { lotImageUrl = await uploadDataUrlToStorage(lotImageUrl); }
           catch(e) { console.error('[AuctionTracker] Legacy image upload failed:', e); lotImageUrl = ''; }
         }
+        // Old data may still use the retired 'arrival' status / arrivalPhase —
+        // fold both into the merged Transit stage (won -> transit -> archived).
+        const oldTransit = l.transitPhase || {};
+        const oldArrival = l.arrivalPhase || {};
+        const mergedStatus = l.status === 'arrival' ? 'transit' : (l.status || 'pending');
         const lotRow = {
-          id: uuid(), auction_id: newAuctionId, status: l.status||'pending', name: l.name||'',
+          id: uuid(), auction_id: newAuctionId, status: mergedStatus, name: l.name||'',
           lot_number: l.lotNumber||'', estimate: l.estimate||'', description: l.description||'',
           hammer_price: l.hammerPrice||'', lot_url: l.lotUrl||'', lot_image_url: lotImageUrl,
           won_phase: l.wonPhase || {paid:false,shippingQuotes:false,notes:''},
-          transit_phase: l.transitPhase || {paidShipping:false,paidTaxes:false,notes:''},
-          arrival_phase: l.arrivalPhase || {receivedByNexus:false,lagos:false,notes:''},
+          transit_phase: {
+            paidShipping: !!oldTransit.paidShipping, paidTaxes: !!oldTransit.paidTaxes,
+            receivedByNexus: !!oldArrival.receivedByNexus, toLagos: !!oldArrival.lagos,
+            notes: [oldTransit.notes, oldArrival.notes].filter(Boolean).join(' / '),
+          },
         };
         const { error: lErr } = await sb.from('lots').insert(lotRow);
         if (lErr) throw lErr;
@@ -438,8 +473,7 @@ function getLot(aId, lId) { const a = getAuction(aId); return a?.lots.find(l => 
 function phaseProgress(lot) {
   const m = {
     won:     [lot.wonPhase.paid, lot.wonPhase.shippingQuotes],
-    transit: [lot.transitPhase.paidShipping, lot.transitPhase.paidTaxes],
-    arrival: [lot.arrivalPhase.receivedByNexus, lot.arrivalPhase.lagos],
+    transit: [lot.transitPhase.paidShipping, lot.transitPhase.paidTaxes, lot.transitPhase.receivedByNexus, lot.transitPhase.toLagos],
   };
   const items = m[lot.status];
   if (!items) return null;
@@ -495,8 +529,7 @@ function makeLot(data) {
   return {
     id: uuid(), status: 'pending', lotImageUrl: '', createdAt: Date.now(),
     wonPhase:     { paid: false, shippingQuotes: false, notes: '' },
-    transitPhase: { paidShipping: false, paidTaxes: false, notes: '' },
-    arrivalPhase: { receivedByNexus: false, lagos: false, notes: '' },
+    transitPhase: { paidShipping: false, paidTaxes: false, receivedByNexus: false, toLagos: false, notes: '' },
     ...data
   };
 }
@@ -532,6 +565,45 @@ function setPhaseField(aId, lId, phase, field, value) {
   sb.from('lots').update(localLotToDbRow(l, aId)).eq('id', l.id).then(({error}) => { if (error) dbFail('Save note', error); });
 }
 
+// ── Possibilities (sweep / manual candidates awaiting approval) ──
+function addPossibility(data) {
+  const p = {
+    id: uuid(), status: 'new', source: data.source||'manual', createdAt: Date.now(),
+    name: data.name||'', auctionName: data.auctionName||'', auctionHouse: data.auctionHouse||'',
+    saleDate: data.saleDate||'', lotUrl: data.lotUrl||'', imageUrl: data.imageUrl||'',
+    estimate: data.estimate||'', description: data.description||'', notes: data.notes||'',
+  };
+  state.possibilities.push(p); render();
+  sb.from('possibilities').insert(localPossibilityToDbRow(p)).then(({error}) => { if (error) dbFail('Add possibility', error); });
+}
+function removePossibilityLocal(id) {
+  state.possibilities = state.possibilities.filter(p => p.id !== id);
+  render();
+}
+async function approvePossibility(id) {
+  const p = state.possibilities.find(x => x.id === id); if (!p) return;
+  let a;
+  try {
+    a = await ensureAuction({
+      name: p.auctionName || p.name,
+      house: p.auctionHouse, date: p.saleDate, url: '', imageUrl: '',
+    });
+  } catch (err) {
+    return; // ensureAuction already surfaced the specific error via dbFail
+  }
+  addLotToAuction(a.id, {
+    name: p.name, estimate: p.estimate, description: p.description,
+    lotUrl: p.lotUrl, lotImageUrl: p.imageUrl,
+  });
+  removePossibilityLocal(id);
+  sb.from('possibilities').delete().eq('id', id).then(({error}) => { if (error) dbFail('Remove possibility', error); });
+  toast('Approved — added to Awaiting Auction');
+}
+function dismissPossibility(id) {
+  removePossibilityLocal(id);
+  sb.from('possibilities').delete().eq('id', id).then(({error}) => { if (error) dbFail('Dismiss possibility', error); });
+}
+
 // ═══════════════════════════════════════
 // UI STATE
 // ═══════════════════════════════════════
@@ -553,12 +625,15 @@ function toast(msg) {
 function renderNav() {
   const tabs = [
     { id:'pipeline', label:'Pipeline' },
+    { id:'possibilities', label:'Possibilities' },
     { id:'lots',     label:'Lots' },
+    { id:'archive',  label:'Archive' },
     { id:'lost',     label:'Lost & Passed' },
   ];
+  const newCount = (state.possibilities||[]).length;
   return `<nav class="nav">
     <div class="nav-brand">Auction Tracker</div>
-    <div class="nav-tabs">${tabs.map(t=>`<div class="nav-tab${state.view===t.id?' active':''}" onclick="setView('${t.id}')">${t.label}</div>`).join('')}</div>
+    <div class="nav-tabs">${tabs.map(t=>`<div class="nav-tab${state.view===t.id?' active':''}" onclick="setView('${t.id}')">${t.label}${t.id==='possibilities'&&newCount?`<span class="nav-tab-badge">${newCount}</span>`:''}</div>`).join('')}</div>
     <div style="display:flex;align-items:center;gap:10px">
       <span style="font-family:Arial,sans-serif;font-size:11px;color:rgba(255,255,255,.5)" title="${escA(auth.user?.email||'')}">${esc((auth.user?.email||'').split('@')[0])}</span>
       <button class="btn btn-sm" style="background:rgba(255,255,255,.12);color:#fff;border:1px solid rgba(255,255,255,.2)" onclick="openModal('newLot',{})">+ New Lot</button>
@@ -568,11 +643,111 @@ function renderNav() {
 }
 
 // ═══════════════════════════════════════
+// POSSIBILITIES VIEW
+// ═══════════════════════════════════════
+function renderPossibilities() {
+  const list = state.possibilities || [];
+  function card(p) {
+    const img = p.imageUrl ? `<img class="lot-card-img" src="${escA(proxyImg(p.imageUrl))}" alt="" onerror="this.style.display='none'">` : '';
+    return `<div class="lot-card" style="cursor:default">
+      ${img}
+      <div class="lot-card-body">
+        <div class="lot-card-auction">${esc(p.auctionHouse||p.auctionName||'Source unknown')}${p.saleDate?' · '+fmtDate(p.saleDate):''}</div>
+        <div class="lot-card-name">${esc(p.name)}</div>
+        <div class="lot-card-meta">${esc(p.estimate||'')}</div>
+        <div style="display:flex;gap:6px;margin-top:10px;flex-wrap:wrap">
+          <button class="btn btn-won btn-sm" style="flex:1" onclick="approvePossibility('${p.id}')">✓ Approve</button>
+          <button class="btn btn-outline btn-sm" style="flex:1" onclick="dismissPossibility('${p.id}')">✕ Dismiss</button>
+          ${p.lotUrl?`<a href="${escA(p.lotUrl)}" target="_blank" class="btn btn-outline btn-sm" style="text-decoration:none">↗</a>`:''}
+        </div>
+      </div>
+    </div>`;
+  }
+  return `<div class="main">
+    <div class="page-header">
+      <div class="page-title">Possibilities</div>
+      <button class="btn btn-primary" onclick="openModal('newPossibility',{})">+ Add Possibility</button>
+    </div>
+    <div style="font-family:Arial,sans-serif;font-size:12px;color:var(--muted);margin-bottom:18px;max-width:640px">
+      Candidates found via keyword research or added manually. Approve to move a piece into Awaiting Auction, or dismiss to discard it.
+    </div>
+    <div class="grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:16px">
+      ${list.length ? list.map(card).join('') : `<div class="empty-state" style="grid-column:1/-1">
+        <div class="empty-state-icon">🔍</div>
+        <div class="empty-state-title">No possibilities yet</div>
+        <div class="empty-state-text">Add a candidate you've found, or check back after the next keyword sweep.</div>
+        <button class="btn btn-primary" onclick="openModal('newPossibility',{})">+ Add Possibility</button>
+      </div>`}
+    </div>
+  </div>`;
+}
+
+// ═══════════════════════════════════════
+// ARCHIVE VIEW — deliberately not shown anywhere else; archived lots only
+// appear here, kept out of the main Pipeline once a work is fully processed.
+// ═══════════════════════════════════════
+function renderArchive() {
+  const archived = lotsByStatus('archived');
+  function tile(lot) {
+    if (lot.lotImageUrl) {
+      return `<div class="phase-tile" onclick="openModal('lotDetail',{auctionId:'${lot.auctionId}',lotId:'${lot.id}'})" title="${escA(lot.name)}">
+        <img src="${escA(proxyImg(lot.lotImageUrl))}" alt="" onerror="this.parentElement.classList.add('no-image');this.remove()">
+        <div class="phase-tile-caption">
+          <div class="ptc-name">${esc(lot.name)}</div>
+          <div class="ptc-meta">${esc(lot.auctionName||'')}</div>
+        </div>
+      </div>`;
+    }
+    return `<div class="phase-tile no-image" onclick="openModal('lotDetail',{auctionId:'${lot.auctionId}',lotId:'${lot.id}'})" title="${escA(lot.name)}">
+      <div class="ph-icon">🖼</div>
+      <div class="ph-label">${esc(lot.name)}</div>
+    </div>`;
+  }
+  return `<div class="main">
+    <div class="page-header">
+      <div class="page-title">Archive</div>
+    </div>
+    <div class="phase-grid" style="padding:0">${archived.length ? archived.map(tile).join('') : `<div class="empty-state" style="grid-column:1/-1">
+      <div class="empty-state-icon">🗄️</div>
+      <div class="empty-state-title">Nothing archived yet</div>
+      <div class="empty-state-text">Fully processed lots will show up here — kept out of the main Pipeline once they're done.</div>
+    </div>`}</div>
+  </div>`;
+}
+
+// ═══════════════════════════════════════
 // PIPELINE VIEW
 // ═══════════════════════════════════════
+function daysUntil(dateStr) {
+  if (!dateStr) return null;
+  const ms = new Date(dateStr+'T00:00:00').getTime() - new Date(new Date().toDateString()).getTime();
+  return Math.round(ms / 86400000);
+}
+function closingSoonLots() {
+  // Awaiting-Auction lots whose sale is today, tomorrow, or already overdue —
+  // these need attention before the sale happens (or already should have).
+  return lotsByStatus('pending')
+    .filter(l => l.auctionDate && daysUntil(l.auctionDate) <= 1)
+    .sort((a,b) => daysUntil(a.auctionDate) - daysUntil(b.auctionDate));
+}
+function renderClosingSoonBanner() {
+  const lots = closingSoonLots();
+  if (lots.length === 0) return '';
+  return `<div class="alert-banner">
+    <div class="alert-banner-icon">⏰</div>
+    <div class="alert-banner-body">
+      <div class="alert-banner-title">${lots.length} auction${lots.length>1?'s':''} closing soon</div>
+      <div class="alert-banner-list">${lots.map(l=>{
+        const d = daysUntil(l.auctionDate);
+        const when = d < 0 ? `${-d} day${-d>1?'s':''} overdue` : d === 0 ? 'Today' : 'Tomorrow';
+        return `<span class="alert-chip" onclick="openModal('lotDetail',{auctionId:'${l.auctionId}',lotId:'${l.id}'})">${esc(l.name)} — <b>${when}</b></span>`;
+      }).join('')}</div>
+    </div>
+  </div>`;
+}
+
 function renderPipeline() {
-  const won = lotsByStatus('won'), transit = lotsByStatus('transit'),
-        arrival = lotsByStatus('arrival'), archived = lotsByStatus('archived');
+  const won = lotsByStatus('won'), transit = lotsByStatus('transit'), archived = lotsByStatus('archived');
   let pending = lotsByStatus('pending');
 
   if (ui.pendingSort === 'soonest') {
@@ -587,11 +762,9 @@ function renderPipeline() {
   }
 
   const cols = [
-    { key:'pending',  label:'Pending',   lots: pending },
-    { key:'won',      label:'Won Lots',  lots: won },
-    { key:'transit',  label:'Transit',   lots: transit },
-    { key:'arrival',  label:'Arrival',   lots: arrival },
-    { key:'archived', label:'Archived',  lots: archived },
+    { key:'pending',  label:'Awaiting Auction', lots: pending },
+    { key:'won',      label:'Won Lots',         lots: won },
+    { key:'transit',  label:'Transit to Lagos', lots: transit },
   ];
 
   function tile(lot) {
@@ -621,12 +794,12 @@ function renderPipeline() {
       <div class="page-title">Pipeline</div>
       <button class="btn btn-primary" onclick="openModal('newLot',{})">+ New Lot</button>
     </div>
+    ${renderClosingSoonBanner()}
     <div class="stats-bar">
-      <div class="stat-card"><div class="stat-num">${pending.length}</div><div class="stat-label">Pending</div></div>
+      <div class="stat-card"><div class="stat-num">${pending.length}</div><div class="stat-label">Awaiting Auction</div></div>
       <div class="stat-card won"><div class="stat-num won">${won.length}</div><div class="stat-label">Won</div></div>
       <div class="stat-card transit"><div class="stat-num transit">${transit.length}</div><div class="stat-label">Transit</div></div>
-      <div class="stat-card arrival"><div class="stat-num arrival">${arrival.length}</div><div class="stat-label">Arrival</div></div>
-      <div class="stat-card archived"><div class="stat-num archived">${archived.length}</div><div class="stat-label">Archived</div></div>
+      <div class="stat-card archived" style="cursor:pointer" onclick="setView('archive')" title="View archive"><div class="stat-num archived">${archived.length}</div><div class="stat-label">Archived ↗</div></div>
     </div>
     <div class="pipeline">${cols.map(c=>`
       <div class="phase-section">
@@ -855,6 +1028,67 @@ function renderModal() {
   }
 
   // ── Edit Auction ──
+  else if (type === 'newPossibility') {
+    inner = `
+      <div class="modal-header">
+        <div class="modal-title">Add Possibility</div>
+        <button class="modal-close" onclick="closeModal()">×</button>
+      </div>
+      <div class="modal-body">
+
+        <!-- IMPORT -->
+        <div class="import-box">
+          <div style="font-family:Arial;font-size:12px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--transit);margin-bottom:8px">Import from Lot URL</div>
+          <p style="font-family:Arial;font-size:12px;color:var(--muted);margin-bottom:10px;line-height:1.5">Paste the lot page URL from Sotheby's, Christie's, Bonhams, Phillips etc. and click <strong>Fetch</strong> — title, estimate, image and description will be auto-filled.</p>
+          <div class="import-row">
+            <input class="form-input" id="import-url" placeholder="https://www.sothebys.com/lot/… or christies.com, bonhams.com…" style="flex:1;background:#fff">
+            <button class="btn btn-transit" onclick="importLotFromUrl()">Fetch</button>
+          </div>
+          <div class="import-status" id="import-status"></div>
+          <div class="image-preview" id="lot-img-preview"></div>
+          <div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--border)">
+            <div class="form-label" style="margin-bottom:6px">Image didn't come through, or no URL to import? Add it directly:</div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap">
+              <button type="button" class="btn btn-primary btn-sm" onclick="document.getElementById('lot-img-camera-input').click()">📷 Take Photo</button>
+              <button type="button" class="btn btn-outline btn-sm" onclick="document.getElementById('lot-img-file-input').click()">🖼 Upload File</button>
+            </div>
+            <input type="file" accept="image/*" capture="environment" id="lot-img-camera-input" style="display:none" onchange="handleLotImageFile(this)">
+            <input type="file" accept="image/*" id="lot-img-file-input" style="display:none" onchange="handleLotImageFile(this)">
+          </div>
+          <div class="paste-fallback" id="paste-fallback">
+            <div class="form-label" style="margin-top:8px;margin-bottom:6px">Or paste the lot page text</div>
+            <textarea class="form-input" id="paste-text" rows="4" placeholder="Select all text on the lot page (Ctrl+A / Cmd+A) → copy → paste here…"></textarea>
+            <button class="btn btn-outline btn-sm" style="margin-top:8px" onclick="parseFromPasted()">Extract Fields</button>
+          </div>
+        </div>
+
+        <hr class="import-divider">
+
+        <div class="section-label">Possibility Details</div>
+        <div class="form-group">
+          <label class="form-label">Lot Title / Artist & Work *</label>
+          <input class="form-input" id="f-name" placeholder="e.g. Twins Seven Seven — Untitled Composition">
+        </div>
+        <div class="form-row">
+          <div class="form-group"><label class="form-label">Estimate</label><input class="form-input" id="f-estimate" placeholder="£2,000 – 3,000"></div>
+          <div class="form-group"><label class="form-label">Lot URL</label><input class="form-input" id="f-loturl" placeholder="https://…"></div>
+        </div>
+        <div class="form-group"><label class="form-label">Description</label><textarea class="form-input" id="f-desc" placeholder="Medium, size, provenance…"></textarea></div>
+
+        <div class="section-label" style="margin-top:16px">Sale Info</div>
+        <div class="form-row">
+          <div class="form-group"><label class="form-label">Auction / Sale Name</label><input class="form-input" id="f-auction-name" placeholder="e.g. African & Oceanic Art Evening Sale"></div>
+          <div class="form-group"><label class="form-label">Auction House</label><input class="form-input" id="f-auction-house" placeholder="Sotheby's, Christie's…"></div>
+        </div>
+        <div class="form-group"><label class="form-label">Sale Date (if known)</label><input class="form-input" type="date" id="f-auction-date"></div>
+        <div class="form-group" style="display:none"><input class="form-input" id="f-imageurl"></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-outline" onclick="closeModal()">Cancel</button>
+        <button class="btn btn-primary" onclick="submitNewPossibility()">Add to Possibilities</button>
+      </div>`;
+  }
+
   else if (type === 'editAuction') {
     const a = getAuction(data.id); if (!a) return '';
     inner = `
@@ -932,7 +1166,7 @@ function renderModal() {
     const a = getAuction(data.auctionId), l = getLot(data.auctionId, data.lotId);
     if (!a || !l) return '';
 
-    const phases = ['won','transit','arrival','archived'];
+    const phases = ['won','transit','archived'];
     const phaseIndex = phases.indexOf(l.status);
     let phaseBlocks = '';
 
@@ -948,30 +1182,21 @@ function renderModal() {
       </div></div>`;
 
     if (phaseIndex >= 1) phaseBlocks += `<div class="phase-block">
-      <div class="phase-block-header transit">Transit</div>
+      <div class="phase-block-header transit">Transit to Lagos</div>
       <div class="phase-block-body">
-        ${chk('tp-ps', l.transitPhase.paidShipping, 'Paid for shipping', data.auctionId, data.lotId, 'transitPhase','paidShipping')}
-        ${chk('tp-pt', l.transitPhase.paidTaxes,    'Paid for taxes / customs', data.auctionId, data.lotId, 'transitPhase','paidTaxes')}
+        ${chk('tp-ps', l.transitPhase.paidShipping,    'Paid for shipping', data.auctionId, data.lotId, 'transitPhase','paidShipping')}
+        ${chk('tp-pt', l.transitPhase.paidTaxes,       'Paid for taxes / customs', data.auctionId, data.lotId, 'transitPhase','paidTaxes')}
+        ${chk('tp-rn', l.transitPhase.receivedByNexus, 'Received by Nexus Cargo', data.auctionId, data.lotId, 'transitPhase','receivedByNexus')}
+        ${chk('tp-lg', l.transitPhase.toLagos,         'Delivered — Lagos / Gallery', data.auctionId, data.lotId, 'transitPhase','toLagos')}
         <div class="phase-notes"><div class="phase-notes-label">Notes</div>
-          <textarea class="form-input" rows="2" placeholder="Shipper, tracking, insurance…"
+          <textarea class="form-input" rows="2" placeholder="Shipper, tracking, insurance, arrival condition…"
             onblur="setPhaseField('${data.auctionId}','${data.lotId}','transitPhase','notes',this.value)"
           >${esc(l.transitPhase.notes)}</textarea></div>
       </div></div>`;
 
-    if (phaseIndex >= 2) phaseBlocks += `<div class="phase-block">
-      <div class="phase-block-header arrival">Arrival</div>
-      <div class="phase-block-body">
-        ${chk('ap-rn', l.arrivalPhase.receivedByNexus, 'Received by Nexus Cargo', data.auctionId, data.lotId, 'arrivalPhase','receivedByNexus')}
-        ${chk('ap-lg', l.arrivalPhase.lagos,            'Delivered — Lagos / Gallery', data.auctionId, data.lotId, 'arrivalPhase','lagos')}
-        <div class="phase-notes"><div class="phase-notes-label">Notes</div>
-          <textarea class="form-input" rows="2" placeholder="Arrival date, condition, placement…"
-            onblur="setPhaseField('${data.auctionId}','${data.lotId}','arrivalPhase','notes',this.value)"
-          >${esc(l.arrivalPhase.notes)}</textarea></div>
-      </div></div>`;
+    if (phaseIndex === 2) phaseBlocks += `<div class="phase-block"><div class="phase-block-header archived">Archived</div></div>`;
 
-    if (phaseIndex === 3) phaseBlocks += `<div class="phase-block"><div class="phase-block-header archived">Archived</div></div>`;
-
-    const nextMap = { pending:null, won:{next:'transit',label:'Move to Transit',cls:'btn-transit'}, transit:{next:'arrival',label:'Move to Arrival — Nexus',cls:'btn-arrival'}, arrival:{next:'archived',label:'Archive',cls:'btn-archive'} };
+    const nextMap = { pending:null, won:{next:'transit',label:'Move to Transit',cls:'btn-transit'}, transit:{next:'archived',label:'Archive',cls:'btn-archive'} };
     const t = nextMap[l.status];
     const advBar = t ? `<div class="advance-bar"><div class="advance-label">Ready for the next phase?</div>
       <button class="btn ${t.cls}" onclick="setStatus('${a.id}','${l.id}','${t.next}');openModal('lotDetail',{auctionId:'${a.id}',lotId:'${l.id}'})">${t.label} →</button></div>` : '';
@@ -1091,7 +1316,11 @@ function render() {
     </div>`;
     return;
   }
-  let body = state.view==='pipeline' ? renderPipeline() : state.view==='lots' ? renderLots() : renderLost();
+  let body = state.view==='pipeline' ? renderPipeline()
+    : state.view==='possibilities' ? renderPossibilities()
+    : state.view==='archive' ? renderArchive()
+    : state.view==='lots' ? renderLots()
+    : renderLost();
   app.innerHTML = renderNav() + renderLegacyImportBanner() + body + renderModal() + renderConfirm();
 }
 
@@ -1132,6 +1361,24 @@ function updateAuctionUrlBtn() {
 function toggleCheck(id, aId, lId, phase, field, val) {
   setPhaseField(aId, lId, phase, field, val);
   document.getElementById('ci-'+id)?.classList.toggle('is-checked', val);
+}
+
+function submitNewPossibility() {
+  const name = (document.getElementById('f-name')?.value||'').trim();
+  if (!name) { alert('Please enter a lot title.'); return; }
+  addPossibility({
+    name,
+    estimate:     (document.getElementById('f-estimate')?.value||'').trim(),
+    description:  (document.getElementById('f-desc')?.value||'').trim(),
+    lotUrl:       (document.getElementById('f-loturl')?.value||'').trim(),
+    imageUrl:     (document.getElementById('f-imageurl')?.value||'').trim(),
+    auctionName:  (document.getElementById('f-auction-name')?.value||'').trim(),
+    auctionHouse: (document.getElementById('f-auction-house')?.value||'').trim(),
+    saleDate:     document.getElementById('f-auction-date')?.value||'',
+    source: 'manual',
+  });
+  closeModal();
+  toast('Added to Possibilities');
 }
 
 async function submitNewLot() {
@@ -1470,7 +1717,7 @@ async function uploadDataUrlToStorage(dataUrl) {
 // UTILITY
 // ═══════════════════════════════════════
 function badge(s) {
-  const L = {pending:'Pending',won:'Won',transit:'Transit',arrival:'Arrival',archived:'Archived',lost:'Lost',passed:'Passed'};
+  const L = {pending:'Awaiting Auction',won:'Won',transit:'Transit',archived:'Archived',lost:'Lost',passed:'Passed'};
   return `<span class="badge badge-${s}">${L[s]||s}</span>`;
 }
 function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
