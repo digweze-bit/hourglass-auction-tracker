@@ -141,6 +141,33 @@ body { font-family: Georgia, serif; background: var(--bg); color: var(--text); m
 .badge-lost     { background: var(--lost-bg);     color: var(--lost); }
 .badge-passed   { background: var(--passed-bg);   color: var(--passed); }
 
+.ptc-date {
+  font-family: Arial,sans-serif;
+  font-size: 11px; 
+  font-weight: bold;
+  color: var(--won);
+  margin-bottom: 4px;
+}
+.ptc-artist, .ph-artist {
+  font-family: Arial,sans-serif; 
+  font-size: 12px;
+  font-weight: bold;
+  color: var(--text);
+  margin-bottom: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;  
+}
+.ptc-title, .ph-title {  
+  font-family: Arial,sans-serif;
+  font-size: 11px;
+  font-weight: normal;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 /* MODAL */
 .overlay { position: fixed; inset: 0; background: rgba(0,0,0,.48); z-index: 200; display: flex; align-items: center; justify-content: center; padding: 20px; }
 .modal { background: #fff; border-radius: 8px; width: 100%; max-width: 640px; max-height: 92vh; overflow-y: auto; box-shadow: 0 20px 60px rgba(0,0,0,.25); }
@@ -771,21 +798,26 @@ function renderPipeline() {
     const prog = phaseProgress(lot);
     const progBar = prog ? `<div class="prog-bar"><div class="prog-bar-fill prog-${lot.status}" style="width:${prog.pct}%"></div></div>` : '';
     const dateStr = lot.status === 'pending' && lot.auctionDate ? fmtDate(lot.auctionDate) : '';
-    const metaLine = `Lot ${esc(lot.lotNumber||'—')}${lot.estimate?' · '+esc(lot.estimate):''}${dateStr?' · '+dateStr:''}`;
+    const artistTitle = lot.name.split(/[-—]/,2); // split on - or — to extract artist and title
+    const artistStr = artistTitle[0]?.trim() || '';
+    const titleStr = artistTitle[1]?.trim() || '';
+
     if (lot.lotImageUrl) {
       return `<div class="phase-tile" onclick="openModal('lotDetail',{auctionId:'${lot.auctionId}',lotId:'${lot.id}'})" title="${escA(lot.name)}">
         ${progBar}
         <img src="${escA(proxyImg(lot.lotImageUrl))}" alt="" onerror="this.parentElement.classList.add('no-image');this.remove()">
         <div class="phase-tile-caption">
-          <div class="ptc-name">${esc(lot.name)}</div>
-          <div class="ptc-meta">${metaLine}</div>
+          <div class="ptc-date">${dateStr}</div>  
+          <div class="ptc-artist">${esc(artistStr)}</div>
+          <div class="ptc-title">${esc(titleStr)}</div>
         </div>
       </div>`;
     }
     return `<div class="phase-tile no-image" onclick="openModal('lotDetail',{auctionId:'${lot.auctionId}',lotId:'${lot.id}'})" title="${escA(lot.name)}">
-      ${progBar}
-      <div class="ph-icon">🖼</div>
-      <div class="ph-label">${esc(lot.name)}</div>
+      ${progBar} 
+      <div class="ptc-date">${dateStr}</div>
+      <div class="ph-artist">${esc(artistStr)}</div>  
+      <div class="ph-title">${esc(titleStr)}</div>
     </div>`;
   }
 
