@@ -1594,6 +1594,63 @@ function slugToWords(slug) {
   return titleCaseIfCaps(decodeURIComponent(String(slug||'')).replace(/[-_]+/g,' ').trim().toUpperCase());
 }
 
+// French/German catalogues put surnames in caps ("Ablade GLOVER"):
+// capitalise just the all-caps words, keeping company suffixes as they are.
+function fixCapsWords(s) {
+  const keep = new Set(['SAS','SARL','SVV','SA','GMBH','KG','LLC','LTD','INC','AG','BV','NV','II','III','IV']);
+  return String(s||'').replace(/\p{Lu}[\p{Lu}'’-]+/gu, w => keep.has(w) ? w : w.charAt(0) + w.slice(1).toLowerCase());
+}
+
+// "Tuesday, November 24" / "December 10" (no year): picks the year whose
+// weekday matches if one is given, else the next occurrence (allowing for
+// sales up to ~4 months back).
+function parseDateNoYear(str) {
+  const withYear = parseLooseDate(str);
+  if (withYear && /\b\d{4}\b/.test(str)) return withYear;
+  const now = new Date(), y = now.getFullYear();
+  const wd = (String(str).match(/\b(Sun|Mon|Tue|Wed|Thu|Fri|Sat)[a-z]*\b/i) || [])[1];
+  const days = ['sun','mon','tue','wed','thu','fri','sat'];
+  const at = yr => { const d = parseLooseDate(str, yr); return d ? { d, t: new Date(d+'T12:00:00') } : null; };
+  if (wd) {
+    for (const yr of [y, y+1, y-1]) { const c = at(yr); if (c && days[c.t.getDay()] === wd.toLowerCase().slice(0,3)) return c.d; }
+  }
+  const c = at(y); if (!c) return '';
+  return (c.t.getTime() < now.getTime() - 120*86400000) ? at(y+1).d : c.d;
+}
+
+// Best lot image: declared share image, else the highest-scoring inline
+// image. `hint` (e.g. the item id) boosts images whose URL contains it.
+function pickImage(page, hint) {
+  const declared = page.meta['og:image'] || page.meta['twitter:image'] || '';
+  if (declared && !hint) return declared;
+  const imgs = []; const pat = /!\[([^\]]*)\]\((https?:\/\/[^)\s]+)\)/g; let m;
+  while ((m = pat.exec(page.content || '')) !== null) imgs.push({ u: m[2], alt: m[1] });
+  const scored = imgs.map(({u, alt}) => {
+    let s = 0;
+    if (hint && u.includes(hint)) s += 30;
+    if (u.match(/\.(jpg|jpeg|png|webp)/i)) s += 10;
+    if (u.match(/lot|artwork|object|item|figure|painting|work/i)) s += 8;
+    if (u.match(/thumbnail|thumb|icon|logo|avatar|banner|sprite|pixel|social|favicon/i)) s -= 15;
+    if (alt.match(/lot|artwork|painting|sculpture/i)) s += 5;
+    if (alt.match(/logo|icon|social/i)) s -= 10;
+    return { u, s };
+  }).filter(x => x.s > 0).sort((a,b) => b.s - a.s);
+  return (hint && scored[0]?.u.includes(hint)) ? scored[0].u : (declared || scored[0]?.u || '');
+}
+
+// Text of a markdown link: "[AZ Auction](https://…)" -> "AZ Auction".
+function linkText(s) { return String(s||'').replace(/\[([^\]]*)\]\([^)]*\)/g, '$1').trim(); }
+
+// "Prince Twins Seven Seven (Nigeria, 1944-2011) \"Stick Dancers\"" ->
+// "Prince Twins Seven Seven — Stick Dancers". Leaves other shapes alone.
+function splitArtistParens(s) {
+  const m = String(s||'').match(/^([^()]+?)\s*\([^)]*\)\s*(.*)$/);
+  if (!m) return String(s||'').trim();
+  return joinArtistTitle(m[1], m[2].replace(/^[,.\s"“”']+|["“”'\s]+$/g, ''));
+}
+
+function formatMoney(sym, n) { return n ? `${sym||''}${Number(n).toLocaleString('en-GB')}` : ''; }
+
 // ── Christie's ──
 // The reader's text version of a Christie's lot page only contains the
 // "More from this sale" carousel (other lots' estimates!), so we read the raw
@@ -1757,6 +1814,208 @@ const bonhamsScraper = {
   },
 };
 
+// ── Interenchères (French regional houses) ──
+// Behind Cloudflare: the raw page is always walled, the text version gets
+// through most of the time, so it's fetched as text with a retry.
+// og:title is truncated; og:description has the full catalogue line:
+// "In detail: Lot no. 658Ablade GLOVER (1934), *Disorderly Disorderly*, HST, …"
+const interencheresScraper = {
+  id: 'interencheres', house: '', format: 'markdown', retries: 1, noGenericFallback: true,
+  matches: url => /(^|\.)interencheres\.com$/i.test(hostOf(url)),
+  fromUrl(url) {
+    const r = emptyScrape();
+    const m = url.match(/^(https?:\/\/[^/]+\/(?:[a-z]{2}-[A-Z]{2}\/)?[^/]+\/[^/]+-\d+)\/lot-\d+/);
+    if (m) r.auction.url = m[1];
+    return r;
+  },
+  parse(page, url) {
+    const r = this.fromUrl(url);
+    const c = page.content || '';
+    const ogd = decodeEntities(page.meta['og:description'] || page.meta.description || '');
+    // The lot number runs straight into the text ("658Ablade"), so digits only.
+    const full = ogd.replace(/^(?:In detail|En détail)\s*:\s*(?:Lot|Lot no\.?|Lot n°)\s*\d+\s*/i, '').trim();
+    r.lot.lotNumber = (c.match(/^#\s*(\d+\s?(?:bis|ter|[A-Z])?)\s+-\s/m) || ogd.match(/Lot(?: no\.?| n°)?\s*(\d+)/i) || [])[1] || '';
+    // "Artist (dates), *Title*, details" — the italic part is the title.
+    const m = full.match(/^(.+?)\s*(?:\([^)]*\))?\s*,\s*\*([^*]+)\*/);
+    r.lot.name = m ? joinArtistTitle(fixCapsWords(m[1]), m[2]) : fixCapsWords(full.split(/,\s/)[0]).slice(0, 120);
+    r.lot.description = full.replace(/\*/g, '');
+    r.lot.estimate = ((c.match(/(?:^|\n)\s*Estimat(?:e|ion)\s*:?\s*([^\n]*\d[^\n]*)/i) || [])[1] || '').trim();
+    const sold = (c.match(/(?:^|\n)\s*(?:Sold for|Result|Adjugé|Hammer price)\s*:?\s*([^\n]*\d[^\n]*)/i) || [])[1];
+    if (sold) r.lot.hammerPrice = sold.trim();
+    const house = c.match(/\[([^\]]+)\]\(https?:\/\/[^)]*\/commissaire-priseur\/[^)]+\)\s*\n+\s*#/);
+    if (house) r.auction.house = fixCapsWords(house[1]);
+    const sale = c.match(/About the sale\s*\[([^\]]+)\]\((https?:\/\/[^)]+)\)/i) || c.match(/(?:À propos de la vente|A propos de la vente)\s*\[([^\]]+)\]\((https?:\/\/[^)]+)\)/i);
+    if (sale) { r.auction.name = titleCaseIfCaps(sale[1]); r.auction.url = sale[2]; }
+    const when = (c.match(/(?:Auction time|Date de la vente|Date de vente)\s*([^\n]+)/i) || [])[1];
+    r.auction.date = parseDateNoYear(when || '');
+    // og:image is a 400px thumbnail; the full-size link is in the gallery.
+    const og = page.meta['og:image'] || '';
+    const fileId = (og.match(/\/(\d{4}\/\d{2}\/\d{2}\/[^/?#]+)$/) || [])[1];
+    const big = fileId && (c.match(new RegExp(`\\((https://thumbor[^)\\s]*?=/${fileId.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')})\\)`)) || [])[1];
+    r.lot.lotImageUrl = big || og;
+    return r;
+  },
+};
+
+// ── Invaluable ──
+// The text version has only the house's terms; the raw page embeds the
+// whole lot record as JSON ("pdp":{…,"lotData":{…},"catalogData":{…}}).
+const invaluableScraper = {
+  id: 'invaluable', house: '', format: 'html', retries: 1, noGenericFallback: true,
+  matches: url => /(^|\.)invaluable\.(com|co\.uk)$/i.test(hostOf(url)),
+  parse(page, url) {
+    const r = emptyScrape();
+    const h = page.html || '';
+    const i = h.indexOf('"pdp":{');
+    const pdp = i >= 0 ? extractJsonAt(h, i + '"pdp":'.length) : null;
+    const lot = pdp?.lotData, cat = pdp?.catalogData;
+    if (lot) {
+      // "Glover, Ablade: Abstrakte Komposition" -> "Ablade Glover — Abstrakte Komposition"
+      const t = String(lot.lotTitle || '');
+      const m = t.match(/^([^,:]+),\s*([^:]+):\s*(.+)$/);
+      r.lot.name = m ? joinArtistTitle(`${m[2].trim()} ${m[1].trim()}`, m[3]) : t;
+      r.lot.lotNumber = lot.lotNumber || '';
+      const sym = lot.currencySymbol || (lot.currency ? lot.currency + ' ' : '');
+      if (lot.estimateLow || lot.estimateHigh) {
+        r.lot.estimate = [formatMoney(sym, lot.estimateLow), formatMoney(sym, lot.estimateHigh)].filter(Boolean).join(' – ');
+      }
+      if (lot.isLotSold && lot.soldAmount) r.lot.hammerPrice = formatMoney(sym, lot.soldAmount);
+      r.lot.description = String(lot.lotDescription || '').split(/\s\/\/\s/)[0].trim().slice(0, 900);
+      const ph = (lot.photos || [])[0];
+      r.lot.lotImageUrl = ph?.large || ph?.medium || '';
+    }
+    if (cat) {
+      r.auction.name = cat.title || '';
+      r.auction.date = String(cat.date || '').slice(0, 10);
+      const ref = String(cat.ref || '');
+      const link = ref && h.match(new RegExp(`https://www\\.invaluable\\.com/catalog/[^"'\\s<>]*${ref}`, 'i'));
+      if (link) r.auction.url = link[0];
+    }
+    r.auction.house = pdp?.auctionHouseData?.name || '';
+    // Fallbacks from the page head when the JSON is missing.
+    if (!r.lot.name) r.lot.name = decodeEntities(page.meta['og:title'] || page.title || '').replace(/^At Auction:\s*/i, '');
+    if (!r.auction.house) r.auction.house = (decodeEntities(page.meta.description || '').match(/ from (.+?) on [A-Z][a-z]+ \d/) || [])[1] || '';
+    if (!r.lot.lotImageUrl) r.lot.lotImageUrl = page.meta['og:image'] || '';
+    return r;
+  },
+};
+
+// ── LiveAuctioneers ──
+const liveAuctioneersScraper = {
+  id: 'liveauctioneers', house: '', format: 'markdown', retries: 1, noGenericFallback: true,
+  matches: url => /(^|\.)liveauctioneers\.com$/i.test(hostOf(url)),
+  parse(page, url) {
+    const r = emptyScrape();
+    const c = page.content || '';
+    const itemId = (url.match(/\/item\/(\d+)/) || [])[1];
+    // The lot's own title sits just above its date and estimate.
+    const head = c.match(/\n\s*([^\n]+?)\s*\n+\s*[A-Z][a-z]{2} \d{1,2}, \d{4}[^\n]*\n+\s*Estimate\b/);
+    const title = head ? head[1] : (page.title || '').replace(/\s+Auction$/i, '');
+    r.lot.name = splitArtistParens(title);
+    r.lot.lotNumber = ((c.match(/Viewing Lot:\s*(\w+)/i) || [])[1] || '').replace(/^0+(?=\w)/, '');
+    r.lot.estimate = ((c.match(/(?:^|\n)\s*Estimate\s*:?\s*([^\n]*\d[^\n]*)/i) || [])[1] || '').trim();
+    const sold = (c.match(/(?:^|\n)\s*(?:Sold for|Price Realized|Sold)\s*:?\s*\n*\s*([^\n]*\d[^\n]*)/i) || [])[1];
+    if (sold) r.lot.hammerPrice = sold.trim();
+    r.lot.description = valueAfterLabel(c, 'Description');
+    const when = (c.match(/(?:The auction starts|Auction (?:date|ended|ends)|Sale date)\s*:?\s*([^\n]+)/i) || [])[1];
+    r.auction.date = parseLooseDate(when || '');
+    const houseBlock = c.split(/\n\s*Meet the Auction House\s*\n/i)[1] || '';
+    r.auction.house = (houseBlock.match(/^\s*([^\n]+)/) || [])[1]?.trim() || '';
+    const sale = (houseBlock.match(/\bFOLLOW\s*\n+\s*([^\n]+)/) || [])[1];
+    if (sale) r.auction.name = titleCaseIfCaps(sale.trim());
+    const cat = c.match(/https:\/\/www\.liveauctioneers\.com\/catalog\/[^)\s"]+/);
+    if (cat) r.auction.url = cat[0];
+    r.lot.lotImageUrl = pickImage(page, itemId ? `${itemId}_1` : '');
+    return r;
+  },
+};
+
+// ── Drouot ──
+// "# 206 - Bruce ONOBRAKPEYA (1932)"; the meta description has the full
+// catalogue entry with its line breaks squashed ("(1932)Set of five prints").
+const drouotScraper = {
+  id: 'drouot', house: '', format: 'markdown', retries: 1, noGenericFallback: true,
+  matches: url => /(^|\.)drouot\.com$/i.test(hostOf(url)),
+  parse(page, url) {
+    const r = emptyScrape();
+    const c = page.content || '';
+    const h1 = c.match(/^#\s*(\d+[A-Za-z]?)\s*-\s*(.+)$/m);
+    if (h1) r.lot.lotNumber = h1[1];
+    const lines = decodeEntities(page.meta.description || page.meta['og:description'] || '')
+      .split(/(?<=[a-z0-9)–.])(?=[A-Z][a-z])/).map(s => s.trim()).filter(Boolean);
+    const artist = fixCapsWords((h1 ? h1[2] : lines[0] || '').replace(/\s*\([^)]*\)\s*$/, ''));
+    const titleLine = lines.length > 1 && h1 && lines[0].startsWith(h1[2].trim()) ? lines[1] : '';
+    r.lot.name = joinArtistTitle(artist, titleLine);
+    // The page text keeps proper spacing between catalogue lines; prefer it.
+    const descLine = h1 && c.split('\n').map(s => s.trim()).find(l => l.startsWith(h1[2].trim()) && l.length > h1[2].trim().length + 20);
+    r.lot.description = (descLine || lines.join('\n')).slice(0, 900);
+    r.lot.estimate = valueAfterLabel(c, '#*\\s*Estimat(?:e|ion)');
+    const sold = valueAfterLabel(c, '#*\\s*(?:Result|Sold for|Hammer price|Adjugé)');
+    if (/\d/.test(sold)) r.lot.hammerPrice = sold;
+    // "[AZ Auction](…)+3222180018[info@…](mailto:…)" — the first link is the name.
+    const houseLine = valueAfterLabel(c, '#*\\s*Auction house');
+    r.auction.house = (houseLine.match(/\[([^\]]+)\]/) || [])[1] || linkText(houseLine);
+    const details = c.split(/\n#*\s*Auction details[^\n]*\n/i)[1] || '';
+    const sale = details.match(/\[([^\]]+)\]\((https?:\/\/drouot\.com\/[a-z]{2}\/v\/[^)]+)\)/);
+    if (sale) {
+      r.auction.name = decodeEntities(sale[1]);
+      r.auction.url = sale[2];
+      r.auction.date = parseDateNoYear(details.slice(details.indexOf(sale[0]) + sale[0].length, details.indexOf(sale[0]) + sale[0].length + 120));
+    }
+    if (!r.auction.date) r.auction.date = parseDateNoYear((c.match(/\blive\s+([A-Z][a-z]+ \d{1,2})/) || [])[1] || '');
+    r.lot.lotImageUrl = pickImage(page);
+    return r;
+  },
+};
+
+// ── the-saleroom ──
+// Always bot-walled for the reader, so it's URL-only: the house and the
+// catalogue come from /auction-catalogues/<house>/catalogue-id-<id>/lot-…
+const saleroomScraper = {
+  id: 'saleroom', house: '', format: 'markdown', noGenericFallback: true,
+  matches: url => /(^|\.)the-saleroom\.com$/i.test(hostOf(url)),
+  fromUrl(url) {
+    const r = emptyScrape();
+    const m = url.match(/^(https?:\/\/[^/]+\/[a-z]{2}-[a-z]{2}\/auction-catalogues\/([^/]+)\/catalogue-id-[^/?#]+)/i);
+    if (m) { r.auction.url = m[1]; r.auction.house = slugToWords(m[2]); }
+    const lot = url.match(/\/lot-(\d+[a-z]?)(?:-|\/|$|\?)/i);   // older URLs carry the lot number
+    if (lot) r.lot.lotNumber = lot[1];
+    return r;
+  },
+  parse(page, url) { return mergeScrape(this.fromUrl(url), genericScraper.parse(page, url)); },
+};
+
+// ── Lot-Art (aggregator) ──
+// Shows title, description and the selling house; the estimate is behind its
+// paid "Unlock", and the only number shown is Lot-Art's own listing id (not
+// the lot number), so lotNumber is left blank on purpose. Sale date is in
+// the URL: …-26.11.26-stockholm -> 2026-11-26.
+const lotArtScraper = {
+  id: 'lotart', house: '', format: 'markdown', noGenericFallback: true,
+  matches: url => /(^|\.)lot-art\.com$/i.test(hostOf(url)),
+  fromUrl(url) {
+    const r = emptyScrape();
+    const d = url.match(/-(\d{2})\.(\d{2})\.(\d{2})-[^/]*$/);
+    if (d) r.auction.date = `20${d[3]}-${d[2]}-${d[1]}`;
+    return r;
+  },
+  parse(page, url) {
+    const r = this.fromUrl(url);
+    const c = page.content || '';
+    // "BRUCE ONOBRAKPEYA (GEB. 1932). Erhue Orise. in Germany"
+    const t = decodeEntities(page.meta['og:title'] || page.title || '').replace(/\s+in\s+[A-Z][\w\s]+$/, '').trim();
+    const m = t.match(/^(.+?)\s*\([^)]*\)\.?\s*(.*?)\.?$/);
+    r.lot.name = m ? joinArtistTitle(titleCaseIfCaps(m[1]), m[2]) : titleCaseIfCaps(t);
+    const afterH1 = c.split(/^#\s+[^\n]+$/m)[1] || '';
+    r.lot.description = (afterH1.split('\n').map(s => s.trim()).find(l => l.length > 40 && !/^\[|^\*/.test(l)) || '').slice(0, 900);
+    const est = valueAfterLabel(c, '#*\\s*Estimate');
+    if (est && !/unlock/i.test(est)) r.lot.estimate = est;
+    r.auction.house = valueAfterLabel(c, '#*\\s*Auction House');
+    r.lot.lotImageUrl = pickImage(page);
+    return r;
+  },
+};
+
 // ── Generic fallback: any other site ──
 const genericScraper = {
   id: 'generic', house: '', format: 'markdown',
@@ -1767,28 +2026,13 @@ const genericScraper = {
     Object.assign(r.lot, parseLotContent(content, title, url));
     const a = parseAuctionContent(content, title, url);
     r.auction.house = a.house; r.auction.date = a.date;
-    // Prefer the page's declared share image; otherwise score inline images.
-    let img = page.meta['og:image'] || page.meta['twitter:image'] || '';
-    if (!img) {
-      const mdImgs = []; const mdPat = /!\[([^\]]*)\]\((https?:\/\/[^)\s]+)\)/g; let m;
-      while ((m = mdPat.exec(content)) !== null) mdImgs.push({ u: m[2], alt: m[1] });
-      const scored = mdImgs.map(({u, alt}) => {
-        let s = 0;
-        if (u.match(/\.(jpg|jpeg|png|webp)/i)) s += 10;
-        if (u.match(/lot|artwork|object|item|figure|painting|work/i)) s += 8;
-        if (u.match(/thumbnail|thumb|icon|logo|avatar|banner|sprite|pixel|social|favicon/i)) s -= 15;
-        if (alt.match(/lot|artwork|painting|sculpture/i)) s += 5;
-        if (alt.match(/logo|icon|social/i)) s -= 10;
-        return { u, s };
-      }).filter(x => x.s > 0).sort((a,b) => b.s - a.s);
-      img = scored[0]?.u || '';
-    }
-    r.lot.lotImageUrl = img;
+    r.lot.lotImageUrl = pickImage(page);
     return r;
   },
 };
 
-const SCRAPERS = [christiesScraper, sothebysScraper, phillipsScraper, bonhamsScraper];
+const SCRAPERS = [christiesScraper, sothebysScraper, phillipsScraper, bonhamsScraper,
+  interencheresScraper, invaluableScraper, liveAuctioneersScraper, drouotScraper, saleroomScraper, lotArtScraper];
 
 function hostOf(url) { try { return new URL(url).hostname.replace(/^www\./,''); } catch(e) { return ''; } }
 function getScraperForUrl(url) { return SCRAPERS.find(s => s.matches(url)) || genericScraper; }
@@ -1819,7 +2063,8 @@ async function fetchPageViaReader(url, format) {
     // but the "page" is a verification shell with no lot content.
     const blockSignals = [/checking your browser/i, /just a moment/i, /access denied/i, /are you a human/i,
       /verify you are human/i, /enable javascript and cookies/i, /request blocked/i, /captcha/i,
-      /cf-browser-verification/i, /performing security verification/i];
+      /cf-browser-verification/i, /performing security verification/i, /confirm you are human/i,
+      /human verification/i, /complete the security check/i];
     const text = page.content || htmlToText(page.html);
     const head = (page.title + ' ' + text).slice(0, 800);
     if (text.trim().length < 400 && blockSignals.some(p => p.test(head))) throw new Error('BOT_BLOCKED');
@@ -1836,13 +2081,20 @@ async function scrapeLotUrl(url) {
   const scraper = getScraperForUrl(url);
   const data = scraper.fromUrl ? scraper.fromUrl(url) : emptyScrape();
   let page = null, error = null;
-  try {
-    page = await fetchPageViaReader(url, scraper.format);
-  } catch (err) {
-    // An HTML fetch can fail where text works (e.g. preflight refused) — retry as text.
-    if (scraper.format === 'html' && !['RATE_LIMIT','BOT_BLOCKED'].includes(err.message) && err.name !== 'AbortError') {
-      try { page = await fetchPageViaReader(url, 'markdown'); } catch (err2) { error = err2; }
-    } else error = err;
+  // Sites behind Cloudflare (Interenchères, Invaluable…) often pass on a
+  // second try, so those scrapers ask for retries. Never retry a rate limit.
+  for (let attempt = 0; attempt <= (scraper.retries || 0) && !page; attempt++) {
+    try {
+      page = await fetchPageViaReader(url, scraper.format);
+      error = null;
+    } catch (err) {
+      error = err;
+      if (err.message === 'RATE_LIMIT') break;
+    }
+  }
+  // An HTML fetch can fail where text works (e.g. preflight refused) — retry as text.
+  if (!page && scraper.format === 'html' && error && !['RATE_LIMIT','BOT_BLOCKED'].includes(error.message) && error.name !== 'AbortError') {
+    try { page = await fetchPageViaReader(url, 'markdown'); error = null; } catch (err2) { error = err2; }
   }
   if (page) {
     let parsed = null;
