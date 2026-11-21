@@ -234,6 +234,69 @@ textarea.form-input { min-height: 72px; resize: vertical; line-height: 1.5; }
 .advance-bar { display: flex; justify-content: space-between; align-items: center; padding: 14px 16px; background: #f9f9f9; border-radius: 6px; margin-top: 16px; border: 1px solid var(--border); }
 .advance-label { font-family: Arial,sans-serif; font-size: 12px; color: var(--muted); }
 
+/* SHIPPING */
+.ship-steps { display: grid; grid-template-columns: repeat(6, 1fr); gap: 4px; }
+.ship-step { background: none; border: none; cursor: pointer; display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 4px 0; position: relative; font-family: Arial,sans-serif; }
+.ship-step::before { content: ''; position: absolute; top: 10px; left: -50%; right: 50%; height: 2px; background: var(--border); z-index: 0; }
+.ship-step:first-child::before { display: none; }
+.ship-step.done::before { background: var(--transit); }
+.ship-step-dot { width: 14px; height: 14px; border-radius: 50%; border: 2px solid var(--border); background: #fff; position: relative; z-index: 1; }
+.ship-step.done .ship-step-dot { background: var(--transit); border-color: var(--transit); }
+.ship-step.current .ship-step-dot { box-shadow: 0 0 0 4px var(--transit-bg); }
+.ship-step-label { font-size: 10px; color: var(--muted); text-align: center; line-height: 1.2; }
+.ship-step.current .ship-step-label { color: var(--transit); font-weight: 700; }
+.ship-step:hover .ship-step-dot { border-color: var(--transit); }
+.ship-sub { font-family: Arial,sans-serif; font-size: 10px; letter-spacing: 1px; text-transform: uppercase; color: var(--muted); font-weight: 600; margin: 16px 0 8px; padding-top: 12px; border-top: 1px solid #f0f0f0; }
+.ship-add-row { display: flex; gap: 8px; margin-bottom: 8px; align-items: center; }
+.ship-add-row .form-input { padding: 7px 10px; font-size: 13px; }
+.ship-add-row input.form-input { flex: 1; min-width: 0; }
+.ship-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+.ship-chip { display: inline-flex; align-items: center; gap: 4px; background: var(--transit-bg); border-radius: 14px; padding: 3px 4px 3px 10px; font-family: Arial,sans-serif; font-size: 12px; }
+.ship-chip a { color: var(--transit); text-decoration: none; font-weight: 600; }
+.ship-chip-x { background: none; border: none; cursor: pointer; color: #aaa; font-size: 16px; line-height: 1; padding: 0 4px; }
+.ship-chip-x:hover { color: var(--lost); }
+.ship-docs, .ship-events { display: flex; flex-direction: column; margin-bottom: 8px; }
+.ship-doc, .ship-event { display: flex; align-items: center; gap: 10px; padding: 6px 0; border-bottom: 1px solid #f4f4f4; font-family: Arial,sans-serif; font-size: 12px; }
+.ship-doc-kind { background: var(--surface2); border-radius: 3px; padding: 2px 6px; font-size: 10px; color: var(--muted); white-space: nowrap; }
+.ship-doc-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--transit); text-decoration: none; }
+.ship-doc-date, .ship-event-date { color: #aaa; font-size: 11px; white-space: nowrap; }
+.ship-event-date { min-width: 52px; }
+.ship-event-text { flex: 1; min-width: 0; }
+.ship-summary { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 14px; }
+.ship-summary-item { background: #fff; border-radius: 4px; padding: 8px 12px; font-family: Arial,sans-serif; font-size: 12px; color: var(--muted); box-shadow: 0 1px 3px rgba(0,0,0,.06); border-left: 3px solid var(--transit); }
+.ship-summary-item b { color: var(--text); font-size: 15px; margin-right: 3px; }
+.ship-summary-item.stale { border-left-color: var(--pending); }
+.ship-filters { display: flex; gap: 6px; margin-bottom: 14px; flex-wrap: wrap; }
+.ship-filter { font-family: Arial,sans-serif; font-size: 11px; letter-spacing: 1px; text-transform: uppercase; padding: 6px 12px; border-radius: 16px; border: 1px solid var(--border); background: #fff; cursor: pointer; color: var(--muted); font-weight: 600; }
+.ship-filter span { opacity: .6; margin-left: 3px; }
+.ship-filter.active { background: var(--transit); border-color: var(--transit); color: #fff; }
+.ship-row { padding: 12px 20px; display: flex; align-items: center; gap: 14px; border-bottom: 1px solid var(--border); cursor: pointer; }
+.ship-row:last-child { border-bottom: none; }
+.ship-row:hover { background: var(--surface2); }
+.ship-row-info { flex: 1; min-width: 0; }
+.ship-row-trk { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 4px; }
+.ship-mini-link { font-family: Arial,sans-serif; font-size: 11px; color: var(--transit); text-decoration: none; font-weight: 600; }
+.ship-row-side { display: flex; flex-direction: column; align-items: flex-end; gap: 5px; flex-shrink: 0; cursor: default; }
+.ship-row-select { padding: 5px 30px 5px 10px; font-size: 12px; width: 210px; }
+.ship-row-meta { font-family: Arial,sans-serif; font-size: 11px; color: #aaa; }
+.ship-row-meta.stale { color: var(--pending); font-weight: 600; }
+@media (max-width: 640px) {
+  .ship-row { flex-wrap: wrap; padding: 12px 16px; }
+  .ship-row-side { width: 100%; align-items: stretch; }
+  .ship-row-select { width: 100%; }
+  .ship-step-label { font-size: 9px; }
+  .ship-add-row { flex-wrap: wrap; }
+  .ship-add-row select.form-input { max-width: none !important; flex: 1; }
+}
+/* Narrow screens: tabs drop to their own swipeable row instead of pushing the page sideways */
+@media (max-width: 900px) {
+  .nav { flex-wrap: wrap; height: auto; padding: 10px 16px 0; row-gap: 6px; }
+  .nav-tabs { order: 3; width: 100%; height: 40px; overflow-x: auto; scrollbar-width: none; margin: 0 -16px; padding: 0 6px; width: calc(100% + 32px); }
+  .nav-tabs::-webkit-scrollbar { display: none; }
+  .nav-tab { padding: 0 12px; white-space: nowrap; flex-shrink: 0; }
+  .main { padding: 20px 16px; }
+}
+
 /* IMAGE */
 .image-preview { display: none; margin-top: 8px; }
 .image-preview.show { display: block; }
@@ -632,6 +695,334 @@ function dismissPossibility(id) {
 }
 
 // ═══════════════════════════════════════
+// SHIPPING — post-auction logistics for a won lot. Everything lives in
+// transitPhase.shipment (the existing transit_phase JSON column), so no
+// schema change is needed:
+//   { stage, shipper, eta, shippingCost, dutiesCost,
+//     tracking:  [{id, number, carrier}],
+//     events:    [{id, at, kind:'stage'|'note', stage?, note?}]   (newest first)
+//     documents: [{id, name, kind, url, path?, uploadedAt}] }
+// ═══════════════════════════════════════
+const SHIP_STAGES = [
+  { id:'awaiting',  label:'Awaiting collection',   short:'Awaiting' },
+  { id:'collected', label:'Collected / dispatched', short:'Collected' },
+  { id:'at_nexus',  label:'At Nexus Cargo',         short:'At Nexus' },
+  { id:'to_lagos',  label:'In transit to Lagos',    short:'To Lagos' },
+  { id:'customs',   label:'Customs clearance',      short:'Customs' },
+  { id:'delivered', label:'Delivered — Lagos / Gallery', short:'Delivered' },
+];
+const CARRIERS = { auto:'Auto-detect', dhl:'DHL', fedex:'FedEx', ups:'UPS', royalmail:'Royal Mail', parcelforce:'Parcelforce', tnt:'TNT', usps:'USPS', laposte:'La Poste / Colissimo', other:'Other' };
+const DOC_KINDS = ['Auction invoice','Shipping quote','Shipping invoice','Airway bill','Customs / duties','Condition report','Photo','Other'];
+
+function shipStageIndex(id) { return SHIP_STAGES.findIndex(s => s.id === id); }
+function shipStageLabel(id, short) { const s = SHIP_STAGES.find(x => x.id === id); return s ? (short ? s.short : s.label) : 'Not started'; }
+
+function getShipment(l) {
+  if (!l.transitPhase) l.transitPhase = { paidShipping:false, paidTaxes:false, receivedByNexus:false, toLagos:false, notes:'' };
+  const s = l.transitPhase.shipment || (l.transitPhase.shipment = {});
+  s.stage ||= ''; s.shipper ||= ''; s.eta ||= ''; s.shippingCost ||= ''; s.dutiesCost ||= '';
+  s.tracking ||= []; s.events ||= []; s.documents ||= [];
+  return s;
+}
+
+function detectCarrier(num) {
+  const n = String(num||'').replace(/\s/g,'').toUpperCase();
+  if (/^1Z[0-9A-Z]{16}$/.test(n)) return 'ups';
+  if (/^[A-Z]{2}\d{9}GB$/.test(n)) return 'royalmail';
+  if (/^[A-Z]{2}\d{9}FR$/.test(n) || /^\d[A-Z]\d{11}$/.test(n)) return 'laposte';
+  if (/^9[2-5]\d{20}$/.test(n)) return 'usps';
+  if (/^\d{10}$/.test(n)) return 'dhl';
+  if (/^(\d{12}|\d{15}|\d{20})$/.test(n)) return 'fedex';
+  return 'other';
+}
+function trackingCarrier(t) { return (!t.carrier || t.carrier === 'auto') ? detectCarrier(t.number) : t.carrier; }
+function trackingUrl(t) {
+  const n = encodeURIComponent(String(t.number||'').replace(/\s/g,''));
+  switch (trackingCarrier(t)) {
+    case 'dhl':         return `https://www.dhl.com/global-en/home/tracking/tracking-express.html?submit=1&tracking-id=${n}`;
+    case 'fedex':       return `https://www.fedex.com/fedextrack/?trknbr=${n}`;
+    case 'ups':         return `https://www.ups.com/track?tracknum=${n}`;
+    case 'royalmail':   return `https://www.royalmail.com/track-your-item#/tracking-results/${n}`;
+    case 'parcelforce': return `https://www.parcelforce.com/track-trace?trackNumber=${n}`;
+    case 'tnt':         return `https://www.tnt.com/express/en_gb/site/shipping-tools/tracking.html?searchType=con&cons=${n}`;
+    case 'usps':        return `https://tools.usps.com/go/TrackConfirmAction?tLabels=${n}`;
+    case 'laposte':     return `https://www.laposte.fr/outils/suivre-vos-envois?code=${n}`;
+    default:            return `https://parcelsapp.com/en/tracking/${n}`; // multi-carrier lookup
+  }
+}
+
+function saveLotRow(aId, l, what) {
+  sb.from('lots').update(localLotToDbRow(l, aId)).eq('id', l.id).then(({error}) => { if (error) dbFail(what || 'Save shipping', error); });
+}
+// Re-render without throwing the open modal back to the top.
+function renderKeepScroll() {
+  const m = document.querySelector('.overlay .modal'); const top = m ? m.scrollTop : 0;
+  render();
+  const m2 = document.querySelector('.overlay .modal'); if (m2) m2.scrollTop = top;
+}
+function lastShipUpdate(l) {
+  const s = getShipment(l);
+  return s.events.length ? new Date(s.events[0].at).getTime() : null;
+}
+
+function setShipStage(aId, lId, stage) {
+  const l = getLot(aId, lId); if (!l) return;
+  const s = getShipment(l);
+  if (s.stage === stage) return;
+  s.stage = stage;
+  s.events.unshift({ id: uuid(), at: new Date().toISOString(), kind: 'stage', stage });
+  // Keep the Transit checklist in step with the shipment stage (only ever ticks, never unticks).
+  const i = shipStageIndex(stage);
+  if (i >= shipStageIndex('at_nexus'))  l.transitPhase.receivedByNexus = true;
+  if (i >= shipStageIndex('delivered')) l.transitPhase.toLagos = true;
+  // Once it has physically left the auction house, the lot is in transit.
+  let moved = false;
+  if (l.status === 'won' && i >= shipStageIndex('collected')) { l.status = 'transit'; moved = true; }
+  saveLotRow(aId, l, 'Update shipment stage');
+  renderKeepScroll();
+  toast(moved ? `${shipStageLabel(stage)} — moved to Transit` : shipStageLabel(stage));
+}
+function setShipField(aId, lId, field, value) {
+  const l = getLot(aId, lId); if (!l) return;
+  const s = getShipment(l);
+  if (s[field] === value) return;
+  s[field] = value;
+  saveLotRow(aId, l);
+}
+function addTracking(aId, lId) {
+  const l = getLot(aId, lId); if (!l) return;
+  const numEl = document.getElementById('trk-num'), carEl = document.getElementById('trk-carrier');
+  const number = (numEl?.value||'').trim();
+  if (!number) { numEl?.focus(); return; }
+  const s = getShipment(l);
+  if (s.tracking.some(t => t.number.replace(/\s/g,'') === number.replace(/\s/g,''))) { toast('That tracking number is already added'); return; }
+  s.tracking.push({ id: uuid(), number, carrier: carEl?.value || 'auto' });
+  s.events.unshift({ id: uuid(), at: new Date().toISOString(), kind: 'note', note: `Tracking added: ${number}` });
+  saveLotRow(aId, l, 'Add tracking number');
+  renderKeepScroll();
+}
+function removeTracking(aId, lId, tId) {
+  const l = getLot(aId, lId); if (!l) return;
+  const s = getShipment(l);
+  s.tracking = s.tracking.filter(t => t.id !== tId);
+  saveLotRow(aId, l, 'Remove tracking number');
+  renderKeepScroll();
+}
+function addShipNote(aId, lId) {
+  const l = getLot(aId, lId); if (!l) return;
+  const el = document.getElementById('ship-note');
+  const note = (el?.value||'').trim();
+  if (!note) { el?.focus(); return; }
+  getShipment(l).events.unshift({ id: uuid(), at: new Date().toISOString(), kind: 'note', note });
+  saveLotRow(aId, l, 'Add shipment update');
+  renderKeepScroll();
+}
+function removeShipEvent(aId, lId, eId) {
+  const l = getLot(aId, lId); if (!l) return;
+  const s = getShipment(l);
+  s.events = s.events.filter(e => e.id !== eId);
+  saveLotRow(aId, l, 'Remove shipment update');
+  renderKeepScroll();
+}
+async function uploadShipDocs(aId, lId, input) {
+  const l = getLot(aId, lId); if (!l) return;
+  const files = [...(input.files||[])]; input.value = '';
+  if (!files.length) return;
+  const kind = document.getElementById('doc-kind')?.value || 'Other';
+  ui.shipUploading = lId; renderKeepScroll();
+  let ok = 0;
+  for (const f of files) {
+    const safe = f.name.replace(/[^\w.\-]+/g, '_').slice(-80);
+    const path = `docs/${lId}/${uuid()}-${safe}`;
+    try {
+      const { error } = await sb.storage.from('lot-images').upload(path, f, { contentType: f.type || 'application/octet-stream', upsert: false });
+      if (error) throw error;
+      const url = sb.storage.from('lot-images').getPublicUrl(path).data.publicUrl;
+      getShipment(l).documents.push({ id: uuid(), name: f.name, kind, url, path, uploadedAt: new Date().toISOString() });
+      ok++;
+    } catch (err) {
+      console.error('[AuctionTracker] Document upload failed:', err);
+      toast(`⚠️ Couldn't upload ${f.name}${err?.message ? ' — ' + err.message : ''}`);
+    }
+  }
+  ui.shipUploading = null;
+  if (ok) { saveLotRow(aId, l, 'Save documents'); toast(`${ok} document${ok>1?'s':''} added`); }
+  renderKeepScroll();
+}
+function addShipDocLink(aId, lId) {
+  const l = getLot(aId, lId); if (!l) return;
+  const urlEl = document.getElementById('doc-link');
+  const url = (urlEl?.value||'').trim();
+  if (!/^https?:\/\//i.test(url)) { toast('Paste a full link starting with https://'); urlEl?.focus(); return; }
+  const kind = document.getElementById('doc-kind')?.value || 'Other';
+  let name = url;
+  try { const u = new URL(url); name = decodeURIComponent(u.pathname.split('/').filter(Boolean).pop() || u.hostname); } catch(e) {}
+  getShipment(l).documents.push({ id: uuid(), name, kind, url, uploadedAt: new Date().toISOString() });
+  saveLotRow(aId, l, 'Save document link');
+  renderKeepScroll();
+}
+function removeShipDoc(aId, lId, dId) {
+  const l = getLot(aId, lId); if (!l) return;
+  const s = getShipment(l);
+  const d = s.documents.find(x => x.id === dId); if (!d) return;
+  confirm(`Remove “${esc(d.name)}”?${d.path ? ' The uploaded file is deleted too.' : ''}`, () => {
+    s.documents = s.documents.filter(x => x.id !== dId);
+    saveLotRow(aId, l, 'Remove document');
+    if (d.path) sb.storage.from('lot-images').remove([d.path]).then(({error}) => { if (error) console.warn('[AuctionTracker] Storage remove failed:', error); });
+    renderKeepScroll();
+  });
+}
+
+function fmtShort(iso) {
+  if (!iso) return '';
+  const d = new Date(iso), now = new Date();
+  const opts = { day:'numeric', month:'short' };
+  if (d.getFullYear() !== now.getFullYear()) opts.year = 'numeric';
+  return d.toLocaleDateString('en-GB', opts);
+}
+function daysAgo(ts) { return ts == null ? null : Math.floor((Date.now() - ts) / 86400000); }
+function agoLabel(ts) {
+  const d = daysAgo(ts);
+  return d == null ? '—' : d === 0 ? 'Today' : d === 1 ? 'Yesterday' : `${d} days ago`;
+}
+const SHIP_STALE_DAYS = 7;
+function shipIsStale(l) {
+  const s = getShipment(l);
+  if (s.stage === 'delivered') return false;
+  const ts = lastShipUpdate(l);
+  return ts != null && daysAgo(ts) >= SHIP_STALE_DAYS;
+}
+
+// ── Shipping block inside the Lot Detail modal ──
+function renderShippingBlock(a, l) {
+  const s = getShipment(l);
+  const aId = a.id, lId = l.id;
+  const curI = shipStageIndex(s.stage);
+  const steps = SHIP_STAGES.map((st, i) => `<button type="button" class="ship-step${i <= curI ? ' done' : ''}${i === curI ? ' current' : ''}"
+      onclick="setShipStage('${aId}','${lId}','${st.id}')" title="${escA(st.label)}"><span class="ship-step-dot"></span><span class="ship-step-label">${esc(st.short)}</span></button>`).join('');
+
+  const tracking = s.tracking.map(t => `<div class="ship-chip">
+      <a href="${escA(trackingUrl(t))}" target="_blank" rel="noopener">${esc(CARRIERS[trackingCarrier(t)] || 'Track')} · ${esc(t.number)} ↗</a>
+      <button class="ship-chip-x" title="Remove" onclick="removeTracking('${aId}','${lId}','${t.id}')">×</button></div>`).join('');
+
+  const docs = s.documents.map(d => `<div class="ship-doc">
+      <span class="ship-doc-kind">${esc(d.kind||'Doc')}</span>
+      <a href="${escA(d.url)}" target="_blank" rel="noopener" class="ship-doc-name">${esc(d.name)}</a>
+      <span class="ship-doc-date">${fmtShort(d.uploadedAt)}</span>
+      <button class="ship-chip-x" title="Remove" onclick="removeShipDoc('${aId}','${lId}','${d.id}')">×</button></div>`).join('');
+
+  const events = s.events.map(e => `<div class="ship-event">
+      <div class="ship-event-date">${fmtShort(e.at)}</div>
+      <div class="ship-event-text">${e.kind === 'stage' ? `<b>${esc(shipStageLabel(e.stage))}</b>` : esc(e.note)}</div>
+      <button class="ship-chip-x" title="Remove" onclick="removeShipEvent('${aId}','${lId}','${e.id}')">×</button></div>`).join('');
+
+  const fld = (label, field, ph, type) => `<div class="form-group"><label class="form-label">${label}</label>
+      <input class="form-input" ${type?`type="${type}"`:''} value="${escA(s[field])}" placeholder="${escA(ph||'')}"
+        onchange="setShipField('${aId}','${lId}','${field}',this.value.trim())"></div>`;
+
+  return `<div class="phase-block">
+    <div class="phase-block-header transit">Shipping<span style="font-weight:400;letter-spacing:1px">${esc(shipStageLabel(s.stage))}</span></div>
+    <div class="phase-block-body">
+      <div class="ship-steps">${steps}</div>
+
+      <div class="form-row" style="margin-top:14px">
+        ${fld('Shipper / agent', 'shipper', 'e.g. Nexus Cargo, auction house shipping')}
+        ${fld('Expected arrival', 'eta', '', 'date')}
+      </div>
+      <div class="form-row">
+        ${fld('Shipping cost', 'shippingCost', 'e.g. £180')}
+        ${fld('Duties / taxes', 'dutiesCost', 'e.g. ₦250,000')}
+      </div>
+
+      <div class="ship-sub">Tracking</div>
+      ${tracking ? `<div class="ship-chips">${tracking}</div>` : ''}
+      <div class="ship-add-row">
+        <input class="form-input" id="trk-num" placeholder="Tracking / airway bill number" onkeydown="if(event.key==='Enter')addTracking('${aId}','${lId}')">
+        <select class="form-input form-select" id="trk-carrier" style="max-width:150px">${Object.entries(CARRIERS).map(([k,v])=>`<option value="${k}">${v}</option>`).join('')}</select>
+        <button class="btn btn-outline btn-sm" onclick="addTracking('${aId}','${lId}')">Add</button>
+      </div>
+
+      <div class="ship-sub">Documents</div>
+      ${docs ? `<div class="ship-docs">${docs}</div>` : ''}
+      <div class="ship-add-row">
+        <select class="form-input form-select" id="doc-kind" style="max-width:170px">${DOC_KINDS.map(k=>`<option>${k}</option>`).join('')}</select>
+        <button class="btn btn-outline btn-sm" ${ui.shipUploading===lId?'disabled':''} onclick="document.getElementById('doc-file').click()">${ui.shipUploading===lId?'<span class="spinner"></span> Uploading…':'⬆ Upload file'}</button>
+        <input type="file" id="doc-file" multiple accept="image/*,application/pdf,.pdf,.doc,.docx,.xls,.xlsx,.eml,.msg" style="display:none" onchange="uploadShipDocs('${aId}','${lId}',this)">
+      </div>
+      <div class="ship-add-row">
+        <input class="form-input" id="doc-link" placeholder="…or paste a link (Drive, Dropbox, email)" onkeydown="if(event.key==='Enter')addShipDocLink('${aId}','${lId}')">
+        <button class="btn btn-outline btn-sm" onclick="addShipDocLink('${aId}','${lId}')">Add link</button>
+      </div>
+
+      <div class="ship-sub">Updates</div>
+      <div class="ship-add-row">
+        <input class="form-input" id="ship-note" placeholder="e.g. Invoice paid, waiting on export licence" onkeydown="if(event.key==='Enter')addShipNote('${aId}','${lId}')">
+        <button class="btn btn-outline btn-sm" onclick="addShipNote('${aId}','${lId}')">Log</button>
+      </div>
+      ${events ? `<div class="ship-events">${events}</div>` : ''}
+    </div></div>`;
+}
+
+// ═══════════════════════════════════════
+// SHIPMENTS VIEW — every won / in-transit lot and where it is
+// ═══════════════════════════════════════
+function renderShipments() {
+  const lots = allLots().filter(l => l.status === 'won' || l.status === 'transit');
+  const filter = ui.shipFilter || 'active';
+  const isDelivered = l => getShipment(l).stage === 'delivered';
+  const active = lots.filter(l => !isDelivered(l)), delivered = lots.filter(isDelivered);
+  const stale = active.filter(shipIsStale);
+  let list = filter === 'delivered' ? delivered : filter === 'stale' ? stale : active;
+  // Furthest-along first, then oldest update first (needs chasing).
+  list = [...list].sort((a, b) => (shipStageIndex(getShipment(b).stage) - shipStageIndex(getShipment(a).stage))
+    || ((lastShipUpdate(a) ?? 0) - (lastShipUpdate(b) ?? 0)));
+
+  const counts = SHIP_STAGES.map(st => ({ ...st, n: active.filter(l => getShipment(l).stage === st.id).length }))
+    .filter(c => c.id !== 'delivered');
+  const notStarted = active.filter(l => !getShipment(l).stage).length;
+
+  function row(l) {
+    const s = getShipment(l);
+    const a = getAuction(l.auctionId);
+    const thumb = l.lotImageUrl ? `<img class="lot-row-thumb" src="${escA(proxyImg(l.lotImageUrl))}" alt="" onerror="this.style.visibility='hidden'">` : `<div class="lot-row-thumb"></div>`;
+    const ts = lastShipUpdate(l);
+    const staleCls = shipIsStale(l) ? ' stale' : '';
+    const trk = s.tracking.map(t => `<a class="ship-mini-link" href="${escA(trackingUrl(t))}" target="_blank" rel="noopener" onclick="event.stopPropagation()" title="${escA(CARRIERS[trackingCarrier(t)]||'')}">${esc(t.number)} ↗</a>`).join('');
+    return `<div class="ship-row" onclick="openModal('lotDetail',{auctionId:'${l.auctionId}',lotId:'${l.id}'})">
+      ${thumb}
+      <div class="ship-row-info">
+        <div class="lot-row-name">${esc(l.name)}</div>
+        <div class="lot-row-estimate">${esc(a?.house || l.auctionName || '')}${s.shipper ? ' → ' + esc(s.shipper) : ''}${s.eta ? ' · ETA ' + fmtDate(s.eta) : ''}</div>
+        ${trk ? `<div class="ship-row-trk">${trk}</div>` : ''}
+      </div>
+      <div class="ship-row-side" onclick="event.stopPropagation()">
+        <select class="form-input form-select ship-row-select" onchange="setShipStage('${l.auctionId}','${l.id}',this.value)">
+          ${s.stage ? '' : '<option value="" selected>Not started</option>'}
+          ${SHIP_STAGES.map(st => `<option value="${st.id}" ${st.id === s.stage ? 'selected' : ''}>${st.label}</option>`).join('')}
+        </select>
+        <div class="ship-row-meta${staleCls}">${s.documents.length ? `📎 ${s.documents.length} · ` : ''}${ts ? 'Updated ' + agoLabel(ts).toLowerCase() : 'No updates yet'}</div>
+        ${s.stage === 'delivered' ? `<button class="btn btn-xs btn-archive" onclick="setStatus('${l.auctionId}','${l.id}','archived');toast('Archived')">Archive</button>` : ''}
+      </div>
+    </div>`;
+  }
+
+  const tab = (id, label, n) => `<button class="ship-filter${filter===id?' active':''}" onclick="ui.shipFilter='${id}';render()">${label} <span>${n}</span></button>`;
+
+  return `<div class="main">
+    <div class="page-header"><div class="page-title">Shipments</div></div>
+    <div class="ship-summary">
+      ${notStarted ? `<div class="ship-summary-item"><b>${notStarted}</b> not started</div>` : ''}
+      ${counts.filter(c => c.n).map(c => `<div class="ship-summary-item"><b>${c.n}</b> ${esc(c.short.toLowerCase())}</div>`).join('')}
+      ${stale.length ? `<div class="ship-summary-item stale"><b>${stale.length}</b> no update in ${SHIP_STALE_DAYS}+ days</div>` : ''}
+    </div>
+    <div class="ship-filters">${tab('active','In progress',active.length)}${tab('stale','Needs chasing',stale.length)}${tab('delivered','Delivered',delivered.length)}</div>
+    <div class="auction-group">${list.length ? list.map(row).join('') : `<div class="empty-col" style="padding:40px 16px">${
+      filter === 'delivered' ? 'Nothing delivered and waiting to be archived.' : filter === 'stale' ? 'Every shipment has a recent update.' : 'No won lots in progress. Mark a lot Won and it shows up here.'
+    }</div>`}</div>
+  </div>`;
+}
+
+// ═══════════════════════════════════════
 // UI STATE
 // ═══════════════════════════════════════
 let ui = { modal: null, confirm: null, pendingSort: 'recent' };
@@ -654,6 +1045,7 @@ function renderNav() {
     { id:'pipeline', label:'Pipeline' },
     { id:'possibilities', label:'Possibilities' },
     { id:'lots',     label:'Lots' },
+    { id:'shipments', label:'Shipments' },
     { id:'archive',  label:'Archive' },
     { id:'lost',     label:'Lost & Passed' },
   ];
@@ -1223,10 +1615,12 @@ function renderModal() {
         ${chk('tp-rn', l.transitPhase.receivedByNexus, 'Received by Nexus Cargo', data.auctionId, data.lotId, 'transitPhase','receivedByNexus')}
         ${chk('tp-lg', l.transitPhase.toLagos,         'Delivered — Lagos / Gallery', data.auctionId, data.lotId, 'transitPhase','toLagos')}
         <div class="phase-notes"><div class="phase-notes-label">Notes</div>
-          <textarea class="form-input" rows="2" placeholder="Shipper, tracking, insurance, arrival condition…"
+          <textarea class="form-input" rows="2" placeholder="Insurance, arrival condition…"
             onblur="setPhaseField('${data.auctionId}','${data.lotId}','transitPhase','notes',this.value)"
           >${esc(l.transitPhase.notes)}</textarea></div>
       </div></div>`;
+
+    if (phaseIndex >= 0) phaseBlocks += renderShippingBlock(a, l);
 
     if (phaseIndex === 2) phaseBlocks += `<div class="phase-block"><div class="phase-block-header archived">Archived</div></div>`;
 
@@ -1355,6 +1749,7 @@ function render() {
     : state.view==='possibilities' ? renderPossibilities()
     : state.view==='archive' ? renderArchive()
     : state.view==='lots' ? renderLots()
+    : state.view==='shipments' ? renderShipments()
     : renderLost();
   app.innerHTML = renderNav() + renderLegacyImportBanner() + body + renderModal() + renderConfirm();
 }
