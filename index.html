@@ -477,6 +477,7 @@ async function loadDataFromSupabase() {
     sync.error = 'Could not load your data — check your connection and try refreshing.';
   } finally {
     sync.loading = false; render();
+    if (pendingCapture && !sync.error) applyCapture();
   }
 }
 
@@ -1374,6 +1375,7 @@ function renderModal() {
             <button class="btn btn-transit" onclick="importLotFromUrl()">Fetch</button>
           </div>
           <div class="import-status" id="import-status"></div>
+          <div style="font-family:Arial;font-size:11px;color:var(--muted);margin-top:8px">Site blocks the fetch (the-saleroom, Bonhams…)? <a href="#" style="color:var(--transit);font-weight:600" onclick="event.preventDefault();openModal('bookmarklet')">Use the bookmark button</a></div>
           <div class="image-preview" id="lot-img-preview"></div>
           <div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--border)">
             <div class="form-label" style="margin-bottom:6px">Image didn't come through, or no URL to import? Add it directly:</div>
@@ -1471,6 +1473,7 @@ function renderModal() {
             <button class="btn btn-transit" onclick="importLotFromUrl()">Fetch</button>
           </div>
           <div class="import-status" id="import-status"></div>
+          <div style="font-family:Arial;font-size:11px;color:var(--muted);margin-top:8px">Site blocks the fetch (the-saleroom, Bonhams…)? <a href="#" style="color:var(--transit);font-weight:600" onclick="event.preventDefault();openModal('bookmarklet')">Use the bookmark button</a></div>
           <div class="image-preview" id="lot-img-preview"></div>
           <div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--border)">
             <div class="form-label" style="margin-bottom:6px">Image didn't come through, or no URL to import? Add it directly:</div>
@@ -1585,6 +1588,29 @@ function renderModal() {
         <button class="btn btn-outline" onclick="closeModal()">Cancel</button>
         <button class="btn btn-primary" onclick="submitEditLot('${data.auctionId}','${data.lotId}')">Save</button>
       </div>`;
+  }
+
+  // ── Bookmark button setup ──
+  else if (type === 'bookmarklet') {
+    inner = `
+      <div class="modal-header">
+        <div><div class="modal-title">Bookmark button</div>
+        <div class="modal-subtitle">Add lots from sites that block the Fetch button</div></div>
+        <button class="modal-close" onclick="closeModal()">×</button>
+      </div>
+      <div class="modal-body" style="font-family:Arial,sans-serif;font-size:13px;line-height:1.6">
+        <p style="margin-bottom:14px">The button reads the lot page you already have open in your browser, so the site's bot check doesn't get in the way. Set it up once:</p>
+        <div style="text-align:center;margin:18px 0">
+          <a class="btn btn-transit" style="text-decoration:none;cursor:grab;padding:10px 18px" href="${escA(bookmarkletHref())}" onclick="event.preventDefault();toast('Drag this button onto your bookmarks bar — clicking it here does nothing')">+ Tracker</a>
+        </div>
+        <ol style="padding-left:20px;margin-bottom:14px">
+          <li><b>Show your bookmarks bar</b>: Ctrl+Shift+B (Cmd+Shift+B on a Mac).</li>
+          <li><b>Drag the blue “+ Tracker” button</b> above onto the bookmarks bar.</li>
+          <li>On any lot page (the-saleroom, Bonhams, anywhere), <b>click “+ Tracker”</b>. This app opens in a new tab with a New Lot form filled in — check it and save.</li>
+        </ol>
+        <p style="color:var(--muted);font-size:12px">The page details travel inside the link to this app only. Nothing is sent anywhere else. If you move the app to a new address, set the button up again from there.</p>
+      </div>
+      <div class="modal-footer"><button class="btn btn-primary" onclick="closeModal()">Done</button></div>`;
   }
 
   // ── Lot Detail ──
@@ -2378,6 +2404,55 @@ const saleroomScraper = {
     return r;
   },
   parse(page, url) { return mergeScrape(this.fromUrl(url), genericScraper.parse(page, url)); },
+  // From the bookmark button (page text as the browser renders it):
+  //   LOT\n\n113\n\nDAVID H DALE (XX) - … (heading, truncated)\n\nIn <Sale>
+  //   Auctioneer's estimate\n150 GBP - 250 GBP
+  //   Live Auction:\n28 Nov 2026 09:30 GMT to …
+  //   Auctioneer:\n\nHansons Auctioneers and Valuers
+  //   Description\nAuction Details\nShipping\nT&Cs & Important Info\n<full description>\n\nCATALOGUE
+  // and meta description "Bid Live on Lot 113 in the <Sale> Auction from <House>."
+  fromCapture(p) {
+    const r = emptyScrape();
+    const t = p.text || '', meta = p.meta || {};
+    const md = decodeEntities(meta.description || '');
+    const mm = md.match(/\bLot\s+(\w+)\s+in the\s+(.+?)\s+Auction from\s+(.+?)\.?\s*$/i);
+    r.lot.lotNumber = (t.match(/(?:^|\n)\s*LOT\s*\n+\s*(\d+[A-Z]?)\s*\n/) || [])[1] || (mm ? mm[1] : '');
+    r.auction.name = (t.match(/\n\s*In\s+([^\n]{3,150})\n/) || [])[1]?.trim() || (mm ? mm[2] : '');
+    r.auction.house = valueAfterLabel(t, 'Auctioneer') || (mm ? mm[3] : '');
+
+    // Full description: the block after the tab labels, up to the catalogue strip.
+    const dm = t.match(/T&Cs & Important Info\s*\n+([\s\S]*?)(?:\n\s*CATALOGUE\s*\n|\n\s*View all\s*\n|$)/);
+    const desc = (dm ? dm[1] : decodeEntities(meta['og:description'] || '')).trim();
+    r.lot.description = desc.replace(/[ \t ]{2,}/g, ' ').slice(0, 1500);
+
+    // Name: "David H Dale (XX) - Nigerian school … - "sunset over sokoto" signed…"
+    //   -> "David H Dale — Sunset Over Sokoto"
+    const head = desc || decodeEntities(meta['og:title'] || p.title || '');
+    const am = head.match(/^([^()\n]{2,80}?)\s*\([^)]*\)\s*[-–—,]\s*([\s\S]*)$/);
+    if (am) {
+      const artist = titleCaseIfCaps(am[1]);
+      const q = am[2].match(/["“]([^"”]{2,120})["”]/);
+      let title = q ? q[1] : am[2].split(/[.\n]/)[0];
+      title = titleCaseIfCaps(title.trim());
+      if (title === title.toLowerCase()) title = title.replace(/(^|\s)(\p{L})/gu, (x, s, c) => s + c.toUpperCase());
+      r.lot.name = joinArtistTitle(artist, title);
+    } else {
+      r.lot.name = titleCaseIfCaps(head.split('\n')[0].slice(0, 160));
+    }
+
+    const cur = { GBP:'£', EUR:'€', USD:'$' };
+    const money = s => s.replace(/([\d,.]+)\s*([A-Z]{3})/g, (x, n, c) => cur[c] ? cur[c] + n : `${n} ${c}`).replace(/\s*-\s*/, '–');
+    const est = valueAfterLabel(t, "Auctioneer's estimate");
+    if (/\d/.test(est)) r.lot.estimate = money(est);
+    const sold = (t.match(/(?:Sold for|Hammer price|Winning bid|Realised)\s*:?\s*\n*\s*([\d,.]+\s*[A-Z]{3})/i) || [])[1];
+    if (sold) r.lot.hammerPrice = money(sold);
+
+    const when = (t.match(/(?:Live Auction|Timed Auction|Auction date|Closing|Ends?)\s*:?\s*\n*\s*(\d{1,2}\s+[A-Za-z]{3,9}\s+\d{4})/i) || [])[1];
+    if (when) r.auction.date = parseLooseDate(when);
+
+    r.lot.lotImageUrl = meta['og:image'] || '';
+    return r;
+  },
 };
 
 // ── Lot-Art (aggregator) ──
@@ -2524,16 +2599,7 @@ async function importLotFromUrl() {
   // The modal may have been closed while we waited.
   if (!document.getElementById('import-status')) return;
 
-  fillLotForm(data.lot, url);
-  const setIfEmpty = (id, val) => { const el = document.getElementById(id); if (el && val && !el.value) el.value = val; };
-  // Only touch auction fields when the user hasn't picked an existing auction.
-  if (!document.getElementById('auction-select')?.value) {
-    setIfEmpty('f-auction-name',  data.auction.name);
-    setIfEmpty('f-auction-house', data.auction.house);
-    setIfEmpty('f-auction-date',  data.auction.date);
-    setIfEmpty('f-auction-url',   data.auction.url);
-    updateAuctionUrlBtn();
-  }
+  fillScrapeIntoForm(data, url);
 
   const fc = countScraped(data), hasImg = !!data.lot.lotImageUrl;
   if (error) {
@@ -2541,7 +2607,7 @@ async function importLotFromUrl() {
     let msg = '⚠️ Could not fetch. Try the paste option below.';
     if (error.name === 'AbortError') msg = '⚠️ Timed out. Try the paste option below.';
     else if (error.message === 'RATE_LIMIT') msg = '⚠️ Rate limited by the reader service — wait a moment and try again, or use paste below.';
-    else if (error.message === 'BOT_BLOCKED') msg = '⚠️ This site is blocking automated access — copy the lot details manually and use 📷/🖼 to add the photo yourself.';
+    else if (error.message === 'BOT_BLOCKED') msg = `⚠️ This site blocks automated access. Open the lot page and click your <a href="#" onclick="event.preventDefault();openModal('bookmarklet')">+ Tracker bookmark button</a> instead.`;
     else if (/^HTTP_4/.test(error.message)) msg = '⚠️ That page could not be read (site may be blocking access). Try the paste option below.';
     else if (/^HTTP_5/.test(error.message)) msg = '⚠️ Reader service error — try again shortly, or use paste below.';
     else if (error.message === 'Failed to fetch') msg = '⚠️ Network/browser blocked the request (see console for details). Try the paste option below.';
@@ -2685,6 +2751,128 @@ function parseFromPasted() {
 }
 
 // ═══════════════════════════════════════
+// BOOKMARK BUTTON ("+ Tracker") — capture a lot from the page you're on
+// ═══════════════════════════════════════
+// Some sites (the-saleroom, Bonhams…) wall off the reader service, but the
+// page is already open in your own browser. The bookmark button runs there,
+// collects the page's text, meta tags, structured data and main images, and
+// opens this app with all of it in the URL #fragment (never sent to any
+// server). On load the app parses it with the same scrapers and opens a
+// pre-filled New Lot form.
+
+// Runs on the auction site, NOT in this app. Serialised into the bookmarklet
+// with Function#toString, so: ES5 only, /* */ comments only, no outside refs.
+function bookmarkletCapture(app) {
+  try {
+    var meta = {};
+    var ms = document.querySelectorAll('meta[property],meta[name],meta[itemprop]');
+    for (var i = 0; i < ms.length; i++) {
+      var k = (ms[i].getAttribute('property') || ms[i].getAttribute('name') || ms[i].getAttribute('itemprop') || '').toLowerCase();
+      if (/^(og:|twitter:|product:|description$|keywords$)/.test(k) && ms[i].content && !meta[k]) meta[k] = ms[i].content.slice(0, 3000);
+    }
+    var ld = [], ls = document.querySelectorAll('script[type="application/ld+json"]');
+    for (var j = 0; j < ls.length; j++) ld.push(ls[j].textContent.slice(0, 30000));
+    var imgs = [], seen = {};
+    var im = [].slice.call(document.images).filter(function (x) {
+      var s = x.currentSrc || x.src, r = x.naturalWidth / (x.naturalHeight || 1);
+      return x.naturalWidth >= 300 && x.naturalHeight >= 200 && r < 3 && r > 0.33 && /^https?:/.test(s) && !/logo|icon|sprite|banner|onetrust|avatar/i.test(s);
+    });
+    im.sort(function (a, b) { return b.naturalWidth * b.naturalHeight - a.naturalWidth * a.naturalHeight; });
+    for (var n = 0; n < im.length && imgs.length < 8; n++) { var u = im[n].currentSrc || im[n].src; if (!seen[u]) { seen[u] = 1; imgs.push(u); } }
+    var canon = document.querySelector('link[rel="canonical"]');
+    var text = (document.body.innerText || '').replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').slice(0, 60000);
+    var p = { v: 1, url: location.href, canonical: canon ? canon.href : '', title: document.title, meta: meta, ld: ld, imgs: imgs, text: text };
+    var w = window.open(app + '#capture=' + encodeURIComponent(JSON.stringify(p)), '_blank');
+    if (!w) alert('Auction Tracker: your browser blocked the new tab. Allow pop-ups for this site and click the button again.');
+  } catch (e) { alert('Auction Tracker: could not read this page (' + e.message + ')'); }
+}
+function appBaseUrl() { return location.origin + location.pathname; }
+function bookmarkletHref() {
+  return 'javascript:' + encodeURIComponent('(' + bookmarkletCapture.toString() + ')(' + JSON.stringify(appBaseUrl()) + ');void 0');
+}
+
+let pendingCapture = null;
+function readCaptureFromHash() {
+  if (!location.hash.startsWith('#capture=')) return;
+  try { pendingCapture = JSON.parse(decodeURIComponent(location.hash.slice('#capture='.length))); }
+  catch (e) { console.error('[AuctionTracker] Bad capture payload:', e); pendingCapture = { bad: true }; }
+  history.replaceState(null, '', location.pathname + location.search);
+}
+
+// Structured data (schema.org JSON-LD) — many auction sites publish it.
+function parseJsonLd(list) {
+  const r = emptyScrape(), nodes = [];
+  const walk = o => { if (!o || typeof o !== 'object') return; if (Array.isArray(o)) return o.forEach(walk); nodes.push(o); if (o['@graph']) walk(o['@graph']); };
+  for (const s of list || []) { try { walk(JSON.parse(s)); } catch (e) {} }
+  const typeOf = n => [].concat(n['@type'] || []).join(' ');
+  const item = nodes.find(n => n.name && /Product|VisualArtwork|CreativeWork|Painting|Sculpture|Photograph/i.test(typeOf(n)));
+  if (item) {
+    r.lot.name = decodeEntities(String(item.name)).trim();
+    r.lot.description = htmlToText(String(item.description || '')).trim().slice(0, 1500);
+    const img = [].concat(item.image || [])[0];
+    r.lot.lotImageUrl = typeof img === 'string' ? img : (img?.url || img?.contentUrl || '');
+    const off = [].concat(item.offers || [])[0];
+    if (off && off.lowPrice && off.highPrice) r.lot.estimate = `${off.priceCurrency || ''} ${Number(off.lowPrice).toLocaleString('en-GB')}–${Number(off.highPrice).toLocaleString('en-GB')}`.trim();
+  }
+  const ev = nodes.find(n => /Event/i.test(typeOf(n)));
+  if (ev) {
+    r.auction.name = decodeEntities(String(ev.name || '')).trim();
+    r.auction.date = parseLooseDate(String(ev.startDate || ''));
+    r.auction.house = String(ev.organizer?.name || '').trim();
+  }
+  return r;
+}
+
+// Turns a capture into the {lot, auction} shape, using the site's own
+// capture parser first, then structured data, then the generic parser.
+function parseCapture(p) {
+  const url = p.url;
+  const scraper = getScraperForUrl(url);
+  const page = {
+    title: p.title || '', meta: p.meta || {}, html: '',
+    content: (p.text || '') + '\n' + (p.imgs || []).map(u => `![](${u})`).join('\n'),
+  };
+  const data = scraper.fromUrl ? scraper.fromUrl(url) : emptyScrape();
+  let site = null;
+  if (scraper.fromCapture) {
+    try { site = scraper.fromCapture(p, page); } catch (e) { console.error(`[AuctionTracker] ${scraper.id} capture parser failed:`, e); }
+  }
+  if (site) for (const part of ['lot','auction']) for (const k of Object.keys(site[part])) if (site[part][k]) data[part][k] = site[part][k];
+  mergeScrape(data, parseJsonLd(p.ld));
+  if (!site || !scraper.noGenericFallback) { try { mergeScrape(data, genericScraper.parse(page, url)); } catch (e) {} }
+  if (!data.lot.lotImageUrl) data.lot.lotImageUrl = (p.imgs || [])[0] || '';
+  if (!data.auction.house) data.auction.house = scraper.house;
+  return data;
+}
+
+// Puts scraped data into the open New Lot form (shared with Fetch).
+function fillScrapeIntoForm(data, url) {
+  fillLotForm(data.lot, url);
+  const setIfEmpty = (id, val) => { const el = document.getElementById(id); if (el && val && !el.value) el.value = val; };
+  if (!document.getElementById('auction-select')?.value) {
+    setIfEmpty('f-auction-name',  data.auction.name);
+    setIfEmpty('f-auction-house', data.auction.house);
+    setIfEmpty('f-auction-date',  data.auction.date);
+    setIfEmpty('f-auction-url',   data.auction.url);
+    updateAuctionUrlBtn();
+  }
+}
+
+function applyCapture() {
+  const p = pendingCapture; pendingCapture = null;
+  if (!p) return;
+  if (p.bad || !p.url) { toast('⚠️ The bookmark button sent something unreadable — try again'); return; }
+  const data = parseCapture(p);
+  openModal('newLot', {});
+  const urlEl = document.getElementById('import-url'); if (urlEl) urlEl.value = p.url;
+  fillScrapeIntoForm(data, p.url);
+  const fc = countScraped(data);
+  setImportStatus(fc ? 'success' : 'warn', fc
+    ? `✓ Captured ${fc} field${fc > 1 ? 's' : ''}${data.lot.lotImageUrl ? ' + image' : ''} from ${esc(hostOf(p.url))} — review before saving.`
+    : `⚠️ Opened from ${esc(hostOf(p.url))}, but couldn't recognise the lot details — fill them in below.`);
+}
+
+// ═══════════════════════════════════════
 // LOT IMAGE UPLOAD (camera / file) — Supabase Storage
 // ═══════════════════════════════════════
 function handleLotImageFile(inputEl) {
@@ -2775,6 +2963,7 @@ function fmtDate(d) {
 // ═══════════════════════════════════════
 // INIT
 // ═══════════════════════════════════════
+readCaptureFromHash(); // a lot sent from the bookmark button, if any
 render(); // initial loading screen while we check for a session
 
 sb.auth.onAuthStateChange((event, session) => {
