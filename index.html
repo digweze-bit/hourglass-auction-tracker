@@ -798,9 +798,11 @@ function renderPipeline() {
     const prog = phaseProgress(lot);
     const progBar = prog ? `<div class="prog-bar"><div class="prog-bar-fill prog-${lot.status}" style="width:${prog.pct}%"></div></div>` : '';
     const dateStr = lot.status === 'pending' && lot.auctionDate ? fmtDate(lot.auctionDate) : '';
-    const artistTitle = lot.name.split(/[-—]/,2); // split on - or — to extract artist and title
-    const artistStr = artistTitle[0]?.trim() || '';
-    const titleStr = artistTitle[1]?.trim() || '';
+    // "Artist — Title": split on the first spaced dash (or any em dash) so
+    // hyphens inside names/dates ("Self-Portrait", "1917-1994") stay intact.
+    const sep = lot.name.match(/\s[-–—]\s|—/);
+    const artistStr = (sep ? lot.name.slice(0, sep.index) : lot.name).trim();
+    const titleStr = sep ? lot.name.slice(sep.index + sep[0].length).trim() : '';
 
     if (lot.lotImageUrl) {
       return `<div class="phase-tile" onclick="openModal('lotDetail',{auctionId:'${lot.auctionId}',lotId:'${lot.id}'})" title="${escA(lot.name)}">
@@ -1254,8 +1256,9 @@ function renderModal() {
         ${(l.description||l.estimate||l.hammerPrice||l.lotUrl)?`<div class="lot-detail-meta">
           ${l.estimate?`<div><div class="lot-detail-field-label">Estimate</div><div class="lot-detail-field-val">${esc(l.estimate)}</div></div>`:''}
           ${l.hammerPrice?`<div><div class="lot-detail-field-label">Hammer Price</div><div class="lot-detail-field-val">${esc(l.hammerPrice)}</div></div>`:''}
-          ${l.lotUrl?`<div style="grid-column:1/-1"><div class="lot-detail-field-label">Listing</div><div class="lot-detail-field-val"><a href="${escA(l.lotUrl)}" target="_blank" style="color:var(--transit);font-family:Arial;font-size:12px">↗ View on auction site</a></div></div>`:''}
-          ${l.description?`<div style="grid-column:1/-1"><div class="lot-detail-field-label">Description</div><div class="lot-detail-field-val" style="font-size:13px;line-height:1.6;color:var(--muted)">${esc(l.description)}</div></div>`:''}
+          ${l.lotUrl?`<div style="grid-column:1/-1"><div class="lot-detail-field-label">Listing</div><div class="lot-detail-field-val" style="display:flex;gap:14px;align-items:center;flex-wrap:wrap"><a href="${escA(l.lotUrl)}" target="_blank" style="color:var(--transit);font-family:Arial;font-size:12px">↗ View on auction site</a>
+            <button class="btn btn-xs btn-outline" ${ui.rescraping===l.id?'disabled':''} onclick="rescrapeLot('${a.id}','${l.id}')" title="Re-read the lot page: updates estimate and price realised, fills in anything blank">${ui.rescraping===l.id?'<span class="spinner"></span> Refreshing…':'⟳ Refresh from site'}</button></div></div>`:''}
+          ${l.description?`<div style="grid-column:1/-1"><div class="lot-detail-field-label">Description</div><div class="lot-detail-field-val" style="font-size:13px;line-height:1.6;color:var(--muted);white-space:pre-line">${esc(l.description)}</div></div>`:''}
         </div>`:''}
         ${resultBar}${phaseBlocks}${advBar}
       </div>
@@ -1482,101 +1485,462 @@ function submitEditLot(aId, lId) {
 }
 
 // ═══════════════════════════════════════
-// LOT URL IMPORT (Jina AI)
+// SCRAPERS — one per auction house, plus a generic fallback
 // ═══════════════════════════════════════
+// Pages are read through the r.jina.ai reader (it fetches the page server-side,
+// so we avoid the auction sites' CORS rules). Every scraper has the same shape:
+//   id, house        — identifiers
+//   matches(url)     — true if this scraper handles the URL
+//   format           — 'markdown' (the reader's text version of the page) or
+//                      'html' (the raw page, for sites whose data is embedded
+//                      as JSON and never appears in the text version)
+//   fromUrl(url)     — optional: fields readable from the URL alone, used even
+//                      when the site blocks the reader
+//   parse(page, url) — page = { title, content, html, meta }
+//   noGenericFallback — optional: don't top up blanks with the generic parser
+//                      (for pages where it is known to grab the wrong lot)
+// Every scraper returns the shape built by emptyScrape().
+
+function emptyScrape() {
+  return {
+    lot:     { name:'', lotNumber:'', estimate:'', hammerPrice:'', description:'', lotImageUrl:'' },
+    auction: { name:'', house:'', date:'', url:'' },
+  };
+}
+
+// Fill blank fields in `into` from `from` (never overwrites).
+function mergeScrape(into, from) {
+  for (const part of ['lot','auction']) {
+    for (const k of Object.keys(into[part])) {
+      if (!into[part][k] && from?.[part]?.[k]) into[part][k] = from[part][k];
+    }
+  }
+  return into;
+}
+
+const MONTHS = {january:'01',february:'02',march:'03',april:'04',may:'05',june:'06',july:'07',august:'08',september:'09',october:'10',november:'11',december:'12',
+  jan:'01',feb:'02',mar:'03',apr:'04',jun:'06',jul:'07',aug:'08',sep:'09',sept:'09',oct:'10',nov:'11',dec:'12'};
+
+// Parses "20 November 2026", "November 19, 2026", "Nov 19" (+ fallbackYear) or
+// "2026-11-19" into "2026-11-19". Returns '' if nothing usable.
+function parseLooseDate(str, fallbackYear) {
+  if (!str) return '';
+  let m = str.match(/(\d{4})-(\d{2})-(\d{2})/);
+  if (m) return `${m[1]}-${m[2]}-${m[3]}`;
+  const mon = '(Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|June?|July?|Aug(?:ust)?|Sept?(?:ember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)';
+  m = str.match(new RegExp(`(\\d{1,2})\\s+${mon}\\.?,?\\s+(\\d{4})`, 'i'));
+  if (m) return `${m[3]}-${MONTHS[m[2].toLowerCase()]}-${m[1].padStart(2,'0')}`;
+  m = str.match(new RegExp(`${mon}\\.?\\s+(\\d{1,2})(?:st|nd|rd|th)?(?:,?\\s+(\\d{4}))?`, 'i'));
+  if (m && (m[3] || fallbackYear)) return `${m[3]||fallbackYear}-${MONTHS[m[1].toLowerCase()]}-${m[2].padStart(2,'0')}`;
+  return '';
+}
+
+function decodeEntities(s) {
+  const named = { amp:'&', lt:'<', gt:'>', quot:'"', apos:"'", nbsp:' ', rsquo:'’', lsquo:'‘', rdquo:'”', ldquo:'“', ndash:'–', mdash:'—', hellip:'…' };
+  return String(s||'')
+    .replace(/&#x([0-9a-f]+);/gi, (_,h) => String.fromCodePoint(parseInt(h,16)))
+    .replace(/&#(\d+);/g, (_,d) => String.fromCodePoint(parseInt(d,10)))
+    .replace(/&([a-z]+);/gi, (m,n) => named[n.toLowerCase()] ?? m);
+}
+
+// HTML -> plain text, one block element per line.
+function htmlToText(html) {
+  return decodeEntities(String(html||'')
+    .replace(/<(script|style|svg|noscript)[\s\S]*?<\/\1>/gi, '')
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/(p|div|li|h\d|span|tr|section)>/gi, '\n')
+    .replace(/<[^>]+>/g, ''))
+    .split('\n').map(l => l.replace(/[ \t ]+/g,' ').trim()).filter(Boolean).join('\n');
+}
+
+// Value on the line after a standalone label, e.g. "Estimate\n\n$300,000–500,000".
+function valueAfterLabel(text, label) {
+  const m = String(text||'').match(new RegExp(`(?:^|\\n)[ \\t]*${label}[ \\t]*:?[ \\t]*\\n+[ \\t]*([^\\n]+)`, 'i'));
+  return m ? m[1].trim() : '';
+}
+
+// "BEN ENWONWU" -> "Ben Enwonwu"; leaves mixed-case text alone.
+function titleCaseIfCaps(s) {
+  s = String(s||'').trim();
+  if (!s || s !== s.toUpperCase() || !/[A-Z]/.test(s)) return s;
+  const small = new Set(['a','an','and','at','by','de','del','der','des','di','du','for','in','la','le','of','on','or','the','to','van','von','with']);
+  return s.toLowerCase().replace(/[\p{L}\p{N}']+/gu, (w, i) =>
+    (i > 0 && small.has(w)) ? w : w.charAt(0).toUpperCase() + w.slice(1));
+}
+
+// The app's naming convention is "Artist — Title" (the Pipeline tiles split on it).
+function joinArtistTitle(artist, title) {
+  artist = String(artist||'').trim(); title = String(title||'').trim();
+  if (artist && title && artist.toLowerCase() !== title.toLowerCase()) return `${artist} — ${title}`;
+  return artist || title;
+}
+
+// Pulls one complete JSON object out of a larger string, starting at `start`
+// (which must point at its opening brace). String-aware brace matching.
+function extractJsonAt(text, start) {
+  if (start < 0 || text[start] !== '{') return null;
+  let depth = 0, inStr = false, esc = false;
+  for (let i = start; i < text.length; i++) {
+    const c = text[i];
+    if (inStr) { if (esc) esc = false; else if (c === '\\') esc = true; else if (c === '"') inStr = false; continue; }
+    if (c === '"') inStr = true;
+    else if (c === '{') depth++;
+    else if (c === '}') { depth--; if (depth === 0) { try { return JSON.parse(text.slice(start, i+1)); } catch(e) { return null; } } }
+  }
+  return null;
+}
+
+function slugToWords(slug) {
+  return titleCaseIfCaps(decodeURIComponent(String(slug||'')).replace(/[-_]+/g,' ').trim().toUpperCase());
+}
+
+// ── Christie's ──
+// The reader's text version of a Christie's lot page only contains the
+// "More from this sale" carousel (other lots' estimates!), so we read the raw
+// HTML instead: it embeds the lot and sale as JSON.
+const christiesScraper = {
+  id: 'christies', house: "Christie's", format: 'html', noGenericFallback: true,
+  matches: url => /(^|\.)christies\.com$/i.test(hostOf(url)),
+  fromUrl(url) { const r = emptyScrape(); r.auction.house = this.house; return r; },
+  parse(page, url) {
+    const r = emptyScrape(); r.auction.house = this.house;
+    const h = page.html || '';
+    const objectId = (url.match(/lot-(\d+)/i) || [])[1];
+    let lot = null, sale = null;
+    if (objectId) {
+      let i = h.indexOf(`"lots":[{"object_id":"${objectId}"`);
+      if (i >= 0) i += '"lots":['.length; else i = h.indexOf(`{"object_id":"${objectId}"`);
+      lot = extractJsonAt(h, i);
+    }
+    const si = h.indexOf('"sale":{"sale_id"');
+    if (si >= 0) sale = extractJsonAt(h, si + '"sale":'.length);
+
+    if (lot) {
+      const primary = titleCaseIfCaps(lot.title_primary_txt).replace(/\s*\((?:[^)]*\d{4}[^)]*)\)\s*$/, '');
+      r.lot.name = joinArtistTitle(primary, titleCaseIfCaps(lot.title_secondary_txt));
+      r.lot.lotNumber = lot.lot_id_txt || '';
+      r.lot.estimate = lot.estimate_on_request ? 'Estimate on request' : (lot.estimate_txt || lot.lot_estimate_txt || '');
+      if (lot.price_realised_txt && !lot.is_unsold) r.lot.hammerPrice = lot.price_realised_txt;
+      r.lot.lotImageUrl = lot.lot_assets?.find(a => a.image_url)?.image_url || '';
+    }
+    if (sale) {
+      r.auction.name = sale.title_txt || '';
+      // Online sales run start_date -> end_date; the close is what matters.
+      const s = (sale.start_date||'').slice(0,10), e = (sale.end_date||'').slice(0,10);
+      r.auction.date = (e && e >= s) ? e : s;
+      r.auction.url = (sale.url || '').replace(/\/$/, '');
+    }
+    // Catalogue text (medium, size, provenance) lives in the Details panel.
+    const di = h.lastIndexOf('<', h.indexOf('class="chr-lot-details"'));
+    if (di >= 0) {
+      const stop = /^(Related articles|More from|Brought to you by|Lot Essay|Specialists?|Condition report|Ask a question|Conditions of sale)/i;
+      const skip = new Set(['details', 'loading details',
+        String(lot?.title_primary_txt||'').trim().toLowerCase(), String(lot?.title_secondary_txt||'').trim().toLowerCase()]);
+      const lines = [];
+      for (const l of htmlToText(h.slice(di, di + 30000)).split('\n')) {
+        if (stop.test(l)) break;
+        if (skip.has(l.toLowerCase())) continue;
+        lines.push(l);
+      }
+      r.lot.description = lines.join('\n').slice(0, 900);
+    }
+    // Fallback when the JSON wasn't there (layout change, or text-only fetch).
+    if (!r.lot.name) r.lot.name = titleCaseIfCaps((page.meta['og:title'] || page.title || '').replace(/\s*\|\s*Christie's\s*$/i, ''));
+    if (!r.lot.lotImageUrl) r.lot.lotImageUrl = page.meta['og:image'] || '';
+    return r;
+  },
+};
+
+// ── Sotheby's ──
+// og:title is "Artist | Title | Sale name"; og:description holds the full
+// catalogue entry as HTML.
+const sothebysScraper = {
+  id: 'sothebys', house: "Sotheby's", format: 'markdown',
+  matches: url => /(^|\.)sothebys\.com$/i.test(hostOf(url)),
+  fromUrl(url) {
+    const r = emptyScrape(); r.auction.house = this.house;
+    const m = url.match(/^(https?:\/\/[^/]+\/[a-z]{2}\/buy\/auction\/\d{4}\/[^/?#]+)/i);
+    if (m) r.auction.url = m[1];
+    return r;
+  },
+  parse(page, url) {
+    const r = this.fromUrl(url);
+    const c = page.content || '';
+    // Ignore the "You May Also Like" carousel — it has other lots' estimates.
+    const main = c.split(/\n\s*You May Also Like\s*\n/i)[0];
+    const parts = (page.meta['og:title'] || page.title || '').split(/\s+\|\s+/).map(s => s.trim()).filter(Boolean);
+    if (parts.length >= 3) { r.lot.name = joinArtistTitle(parts[0], parts[1]); r.auction.name = parts.slice(2).join(' | '); }
+    else if (parts.length === 2) { r.lot.name = parts[0]; r.auction.name = parts[1]; }
+    else r.lot.name = parts[0] || '';
+    r.lot.lotNumber = (main.match(/^\s*Lot\s+(\d+[A-Za-z]?)\s*$/m) || [])[1] || '';
+    r.lot.estimate = valueAfterLabel(main, 'Estimate');
+    const sold = valueAfterLabel(main, '(?:Lot\\s+)?Sold(?:\\s+for)?');
+    if (/\d/.test(sold)) r.lot.hammerPrice = sold;
+    // "Auction Closed\n\nNovember 19, 10:10 PM GMT" — year only in the URL.
+    const year = (url.match(/\/auction\/(\d{4})\//) || [])[1];
+    const when = valueAfterLabel(main, '(?:Auction Closed|Bidding Closes?|Closes|Live Auction Begins(?: on)?|Auction Begins|Lots Begin Closing)');
+    r.auction.date = parseLooseDate(when, year);
+    r.lot.description = htmlToText(page.meta['og:description'] || '').slice(0, 900);
+    r.lot.lotImageUrl = page.meta['og:image'] || '';
+    return r;
+  },
+};
+
+// ── Phillips ──
+// Lot number and title are headings ("## 105", "### Wildflowers 1"); the
+// artist and sale date are in the keywords meta tag.
+const phillipsScraper = {
+  id: 'phillips', house: 'Phillips', format: 'markdown',
+  matches: url => /(^|\.)phillips\.com$/i.test(hostOf(url)),
+  fromUrl(url) {
+    const r = emptyScrape(); r.auction.house = this.house;
+    const m = url.match(/\/detail\/([^/]+)\/\d+/i);
+    if (m) r.lot.name = slugToWords(m[1]);
+    return r;
+  },
+  parse(page, url) {
+    const r = emptyScrape(); r.auction.house = this.house;
+    const c = page.content || '';
+    const kw = (page.meta.keywords || '').split(/\s*,\s*/);
+    // "Phillips Auctioneers LLC, auction, Lot, Alex Katz, New York Auction 20 November 2026"
+    const lotIdx = kw.findIndex(k => /^lot$/i.test(k));
+    let artist = lotIdx >= 0 ? (kw[lotIdx+1] || '') : '';
+    if (!artist) artist = this.fromUrl(url).lot.name;
+    const title = ((c.match(/^###\s+(.+)$/m) || [])[1] || '').trim();
+    r.lot.name = joinArtistTitle(artist, title);
+    r.lot.lotNumber = ((c.match(/^##\s+(\d+[A-Za-z]?)\s*$/m) || [])[1] || '');
+    r.lot.estimate = valueAfterLabel(c, 'Estimate');
+    const sold = valueAfterLabel(c, 'Sold For');
+    if (/\d/.test(sold)) r.lot.hammerPrice = sold;
+    const desc = decodeEntities(page.meta.description || '');
+    r.auction.name = ((desc.match(/featured in Phillips['’]?\s+(.+?)\s+Auction in\b/i) || [])[1] || '').trim();
+    if (!r.auction.name && artist) r.auction.name = decodeEntities(page.meta['og:title'] || '').replace(artist, '').trim();
+    r.auction.date = parseLooseDate(kw.slice(lotIdx+2).join(' '));
+    r.lot.lotImageUrl = page.meta['og:image'] || '';
+    const code = (r.lot.lotImageUrl.match(/auction-assets\/([A-Z]{2}\d{5,})\//) || [])[1];
+    if (code) r.auction.url = `https://www.phillips.com/auction/${code}`;
+    // Catalogue lines (signature, medium, size, date) are the short lines
+    // right after the estimate/price block, before the essay starts.
+    const anchor = sold ? sold : r.lot.estimate;
+    const after = anchor ? c.slice(c.indexOf(anchor) + anchor.length) : '';
+    const lines = [];
+    for (const l of after.split('\n').map(s => s.trim()).filter(Boolean)) {
+      if (/^(estimate|sold for|#)/i.test(l) || l.startsWith('![')) { if (lines.length) break; else continue; }
+      if (l.length > 160) break;
+      lines.push(l.replace(/^_|_$/g, ''));
+      if (lines.length >= 8) break;
+    }
+    r.lot.description = lines.join('\n');
+    return r;
+  },
+};
+
+// ── Bonhams ──
+// Bonhams bot-walls the reader most of the time, so get what we can from the
+// URL: /auction/29123/lot/45/artist-title-slug/
+const bonhamsScraper = {
+  id: 'bonhams', house: 'Bonhams', format: 'markdown',
+  matches: url => /(^|\.)bonhams\.com$/i.test(hostOf(url)),
+  fromUrl(url) {
+    const r = emptyScrape(); r.auction.house = this.house;
+    const m = url.match(/^(https?:\/\/[^/]+\/auction\/\d+)\/lot\/(\d+[a-z]?)(?:\/([^/?#]+))?/i);
+    if (m) { r.auction.url = m[1]; r.lot.lotNumber = m[2]; if (m[3]) r.lot.name = slugToWords(m[3]); }
+    return r;
+  },
+  parse(page, url) {
+    const r = genericScraper.parse(page, url);
+    const base = this.fromUrl(url);
+    r.lot.lotNumber = base.lot.lotNumber || r.lot.lotNumber;
+    r.auction.url = base.auction.url || r.auction.url;
+    r.auction.house = this.house;
+    return r;
+  },
+};
+
+// ── Generic fallback: any other site ──
+const genericScraper = {
+  id: 'generic', house: '', format: 'markdown',
+  matches: () => true,
+  parse(page, url) {
+    const r = emptyScrape();
+    const content = page.content || '', title = page.meta['og:title'] || page.title || '';
+    Object.assign(r.lot, parseLotContent(content, title, url));
+    const a = parseAuctionContent(content, title, url);
+    r.auction.house = a.house; r.auction.date = a.date;
+    // Prefer the page's declared share image; otherwise score inline images.
+    let img = page.meta['og:image'] || page.meta['twitter:image'] || '';
+    if (!img) {
+      const mdImgs = []; const mdPat = /!\[([^\]]*)\]\((https?:\/\/[^)\s]+)\)/g; let m;
+      while ((m = mdPat.exec(content)) !== null) mdImgs.push({ u: m[2], alt: m[1] });
+      const scored = mdImgs.map(({u, alt}) => {
+        let s = 0;
+        if (u.match(/\.(jpg|jpeg|png|webp)/i)) s += 10;
+        if (u.match(/lot|artwork|object|item|figure|painting|work/i)) s += 8;
+        if (u.match(/thumbnail|thumb|icon|logo|avatar|banner|sprite|pixel|social|favicon/i)) s -= 15;
+        if (alt.match(/lot|artwork|painting|sculpture/i)) s += 5;
+        if (alt.match(/logo|icon|social/i)) s -= 10;
+        return { u, s };
+      }).filter(x => x.s > 0).sort((a,b) => b.s - a.s);
+      img = scored[0]?.u || '';
+    }
+    r.lot.lotImageUrl = img;
+    return r;
+  },
+};
+
+const SCRAPERS = [christiesScraper, sothebysScraper, phillipsScraper, bonhamsScraper];
+
+function hostOf(url) { try { return new URL(url).hostname.replace(/^www\./,''); } catch(e) { return ''; } }
+function getScraperForUrl(url) { return SCRAPERS.find(s => s.matches(url)) || genericScraper; }
+
+// Fetches a page through the reader. Throws Error with message RATE_LIMIT,
+// HTTP_<status>, BOT_BLOCKED, or the browser's own fetch error.
+async function fetchPageViaReader(url, format) {
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), 30000);
+  // Accept is CORS-safelisted. X-Return-Format is not, so it triggers a CORS
+  // preflight — the reader answers that permissively (checked 21 Nov 2026,
+  // including Origin: null for file:// pages), but if that ever stops working
+  // scrapeLotUrl() falls back to a plain text fetch.
+  const headers = { 'Accept': 'application/json' };
+  if (format === 'html') headers['X-Return-Format'] = 'html';
+  try {
+    const resp = await fetch(`https://r.jina.ai/${url}`, { signal: ctrl.signal, headers });
+    if (!resp.ok) {
+      let bodyText = '';
+      try { bodyText = await resp.text(); } catch(_) {}
+      console.error('[AuctionTracker] Reader fetch non-OK:', resp.status, bodyText.slice(0,500));
+      if (resp.status === 429) throw new Error('RATE_LIMIT');
+      throw new Error('HTTP_'+resp.status);
+    }
+    const d = (await resp.json()).data || {};
+    const page = { title: d.title || '', content: d.content || d.text || '', html: d.html || '', meta: d.metadata || {} };
+    // Bot-walled sites (Bonhams, Cloudflare-protected pages) still return 200,
+    // but the "page" is a verification shell with no lot content.
+    const blockSignals = [/checking your browser/i, /just a moment/i, /access denied/i, /are you a human/i,
+      /verify you are human/i, /enable javascript and cookies/i, /request blocked/i, /captcha/i,
+      /cf-browser-verification/i, /performing security verification/i];
+    const text = page.content || htmlToText(page.html);
+    const head = (page.title + ' ' + text).slice(0, 800);
+    if (text.trim().length < 400 && blockSignals.some(p => p.test(head))) throw new Error('BOT_BLOCKED');
+    return page;
+  } finally {
+    clearTimeout(t);
+  }
+}
+
+// Scrapes a lot URL with the right house scraper. Always resolves:
+// { data, scraper, error } — `data` holds whatever was found (possibly only
+// URL-derived fields), `error` is the fetch failure message if there was one.
+async function scrapeLotUrl(url) {
+  const scraper = getScraperForUrl(url);
+  const data = scraper.fromUrl ? scraper.fromUrl(url) : emptyScrape();
+  let page = null, error = null;
+  try {
+    page = await fetchPageViaReader(url, scraper.format);
+  } catch (err) {
+    // An HTML fetch can fail where text works (e.g. preflight refused) — retry as text.
+    if (scraper.format === 'html' && !['RATE_LIMIT','BOT_BLOCKED'].includes(err.message) && err.name !== 'AbortError') {
+      try { page = await fetchPageViaReader(url, 'markdown'); } catch (err2) { error = err2; }
+    } else error = err;
+  }
+  if (page) {
+    let parsed = null;
+    try { parsed = scraper.parse(page, url); }
+    catch (err) { console.error(`[AuctionTracker] ${scraper.id} scraper failed:`, err); }
+    if (parsed) {
+      // House scrapers take priority over URL-derived guesses.
+      for (const part of ['lot','auction']) for (const k of Object.keys(parsed[part])) {
+        if (parsed[part][k]) data[part][k] = parsed[part][k];
+      }
+    }
+    if (scraper !== genericScraper && !scraper.noGenericFallback) {
+      try { mergeScrape(data, genericScraper.parse(page, url)); } catch(_) {}
+    }
+  }
+  if (!data.auction.house) data.auction.house = scraper.house;
+  return { data, scraper: scraper.id, error };
+}
+
+function countScraped(d) {
+  return ['name','lotNumber','estimate','description','hammerPrice'].filter(k => d.lot[k]?.trim()).length;
+}
+
+// "Fetch" button in the New Lot / Add Possibility modals.
 async function importLotFromUrl() {
   const urlEl = document.getElementById('import-url');
   const url = (urlEl?.value||'').trim();
   if (!url || !url.startsWith('http')) { setImportStatus('error','✕ Enter a valid URL'); return; }
   setImportStatus('loading','<span class="spinner"></span> Fetching lot data…');
-  try {
-    const ctrl = new AbortController();
-    const t = setTimeout(() => ctrl.abort(), 25000);
-    // NOTE: only send CORS-safelisted headers here (Accept is safelisted).
-    // Adding custom headers like X-Return-Format forces a CORS preflight
-    // (an OPTIONS request) that Jina may not answer permissively, which makes
-    // the browser abort the whole request with a generic "failed to fetch" —
-    // no server error, no timeout, just silence. Accept alone is enough to
-    // get JSON back from r.jina.ai.
-    const resp = await fetch(`https://r.jina.ai/${url}`, {
-      signal: ctrl.signal,
-      headers: { 'Accept': 'application/json' }
-    });
-    clearTimeout(t);
-    if (!resp.ok) {
-      let bodyText = '';
-      try { bodyText = await resp.text(); } catch(_) {}
-      console.error('[AuctionTracker] Jina fetch non-OK:', resp.status, bodyText.slice(0,500));
-      if (resp.status === 429) throw new Error('RATE_LIMIT');
-      throw new Error('HTTP_'+resp.status);
-    }
-    const json = await resp.json();
-    const d = json.data || {};
-    const content = d.content || d.text || '';
-    const pageTitle = d.title || '';
-    const jinaImgs = d.images || {};
 
-    // Some auction sites (Bonhams among them) actively bot-wall automated
-    // fetchers — including headless-browser crawlers like Jina's. When that
-    // happens we still get a 200 OK back, but the "page" is a bot-check
-    // shell, not the real lot page: little/no real content, no lot images.
-    // Detect that up front rather than silently parsing junk into fields.
-    const blockSignals = [/checking your browser/i, /just a moment/i, /access denied/i, /are you a human/i,
-      /verify you are human/i, /enable javascript and cookies/i, /request blocked/i, /captcha/i, /cf-browser-verification/i];
-    const combinedForCheck = (pageTitle + ' ' + content).slice(0, 800);
-    const looksBlocked = (content.trim().length < 200) && blockSignals.some(p => p.test(combinedForCheck));
-    if (looksBlocked) throw new Error('BOT_BLOCKED');
+  const { data, error } = await scrapeLotUrl(url);
+  // The modal may have been closed while we waited.
+  if (!document.getElementById('import-status')) return;
 
-    const parsed = parseLotContent(content, pageTitle, url);
+  fillLotForm(data.lot, url);
+  const setIfEmpty = (id, val) => { const el = document.getElementById(id); if (el && val && !el.value) el.value = val; };
+  // Only touch auction fields when the user hasn't picked an existing auction.
+  if (!document.getElementById('auction-select')?.value) {
+    setIfEmpty('f-auction-name',  data.auction.name);
+    setIfEmpty('f-auction-house', data.auction.house);
+    setIfEmpty('f-auction-date',  data.auction.date);
+    setIfEmpty('f-auction-url',   data.auction.url);
+    updateAuctionUrlBtn();
+  }
 
-    // Image extraction from both sources
-    const mdImgs = [];
-    const mdPat = /!\[[^\]]*\]\((https?:\/\/[^)]+)\)/g; let m;
-    while ((m = mdPat.exec(content)) !== null) mdImgs.push(m[1]);
-    const allImgs = [...new Set([...Object.keys(jinaImgs), ...mdImgs])];
-    const scored = allImgs.map(u => {
-      let s = 0;
-      if (u.match(/\.(jpg|jpeg|png|webp)/i)) s += 10;
-      if (u.match(/lot|artwork|object|item|figure|painting|work/i)) s += 8;
-      if (u.match(/thumbnail|thumb|icon|logo|avatar|banner|sprite|pixel|social/i)) s -= 15;
-      const alt = (jinaImgs[u]||'').toLowerCase();
-      if (alt.match(/lot|artwork|painting|sculpture/i)) s += 5;
-      if (alt.match(/logo|icon|social/i)) s -= 10;
-      return { u, s };
-    }).filter(x => x.s > 0).sort((a,b) => b.s - a.s);
-    const bestImg = scored[0]?.u ? proxyImg(scored[0].u) : '';
-    if (bestImg) parsed.lotImageUrl = bestImg;
-
-    // Also try to fill auction fields from page if not already set
-    const auctionParsed = parseAuctionContent(content, pageTitle, url);
-    if (!document.getElementById('f-auction-name')?.value && auctionParsed.name) {
-      const el = document.getElementById('f-auction-name');
-      if (el) el.value = auctionParsed.name;
-    }
-    if (!document.getElementById('f-auction-house')?.value && auctionParsed.house) {
-      const el = document.getElementById('f-auction-house');
-      if (el) el.value = auctionParsed.house;
-    }
-
-    fillLotForm(parsed, url);
-    const fc = ['name','lotNumber','estimate','description'].filter(k => parsed[k]?.trim()).length;
-    if (fc === 0 && !bestImg) { setImportStatus('warn','⚠️ Could not extract data. Try the paste option below.', true); }
-    else {
-      const parts = [];
-      if (fc) parts.push(fc+' field'+(fc>1?'s':''));
-      if (bestImg) parts.push('image');
-      setImportStatus('success','✓ Imported '+parts.join(' + ')+' — review before saving.');
-    }
-  } catch(err) {
-    console.error('[AuctionTracker] Import failed:', err);
+  const fc = countScraped(data), hasImg = !!data.lot.lotImageUrl;
+  if (error) {
+    console.error('[AuctionTracker] Import failed:', error);
     let msg = '⚠️ Could not fetch. Try the paste option below.';
-    if (err.name === 'AbortError') msg = '⚠️ Timed out. Try the paste option below.';
-    else if (err.message === 'RATE_LIMIT') msg = '⚠️ Rate limited by the reader service — wait a moment and try again, or use paste below.';
-    else if (err.message === 'BOT_BLOCKED') msg = '⚠️ This site is blocking automated access — copy the lot details manually and use 📷/🖼 to add the photo yourself.';
-    else if (/^HTTP_4/.test(err.message)) msg = '⚠️ That page could not be read (site may be blocking access). Try the paste option below.';
-    else if (/^HTTP_5/.test(err.message)) msg = '⚠️ Reader service error — try again shortly, or use paste below.';
-    else if (err.message === 'Failed to fetch') msg = '⚠️ Network/browser blocked the request (see console for details). Try the paste option below.';
+    if (error.name === 'AbortError') msg = '⚠️ Timed out. Try the paste option below.';
+    else if (error.message === 'RATE_LIMIT') msg = '⚠️ Rate limited by the reader service — wait a moment and try again, or use paste below.';
+    else if (error.message === 'BOT_BLOCKED') msg = '⚠️ This site is blocking automated access — copy the lot details manually and use 📷/🖼 to add the photo yourself.';
+    else if (/^HTTP_4/.test(error.message)) msg = '⚠️ That page could not be read (site may be blocking access). Try the paste option below.';
+    else if (/^HTTP_5/.test(error.message)) msg = '⚠️ Reader service error — try again shortly, or use paste below.';
+    else if (error.message === 'Failed to fetch') msg = '⚠️ Network/browser blocked the request (see console for details). Try the paste option below.';
+    if (fc) msg += ` (Lot number / title filled in from the URL.)`;
     setImportStatus('warn', msg, true);
+    return;
+  }
+  if (fc === 0 && !hasImg) { setImportStatus('warn','⚠️ Could not extract data. Try the paste option below.', true); return; }
+  const parts = [];
+  if (fc) parts.push(fc+' field'+(fc>1?'s':''));
+  if (hasImg) parts.push('image');
+  setImportStatus('success','✓ Imported '+parts.join(' + ')+' — review before saving.');
+}
+
+// "Refresh from site" on an existing lot: re-reads the lot page and updates
+// the fields that change over time (estimate, price realised), and fills in
+// anything still blank. Never overwrites a title or description you've edited.
+async function rescrapeLot(aId, lId) {
+  const l = getLot(aId, lId); if (!l) return;
+  if (!l.lotUrl) { toast('Add the lot URL first (Edit Details)'); return; }
+  ui.rescraping = lId; render();
+  const { data, error } = await scrapeLotUrl(l.lotUrl);
+  ui.rescraping = null;
+
+  const changes = {}, changed = [];
+  const refresh = (key, label) => { const v = data.lot[key]; if (v && v !== l[key]) { changes[key] = v; changed.push(label); } };
+  const fill    = (key, label) => { const v = data.lot[key]; if (v && !l[key]) { changes[key] = v; changed.push(label); } };
+  refresh('estimate', 'estimate');
+  refresh('hammerPrice', 'price');
+  fill('lotNumber', 'lot number');
+  fill('name', 'title');
+  fill('description', 'description');
+  fill('lotImageUrl', 'image');
+  if (Object.keys(changes).length) updateLot(aId, lId, changes);
+
+  const a = getAuction(aId);
+  if (a) {
+    const ac = {};
+    for (const k of ['house','date','url']) if (data.auction[k] && !a[k]) ac[k] = data.auction[k];
+    if (Object.keys(ac).length) { updateAuction(aId, ac); changed.push('sale details'); }
+  }
+  render();
+  if (error && !changed.length) {
+    toast(error.message === 'BOT_BLOCKED' ? '⚠️ This site is blocking automated access' : '⚠️ Could not refresh from the auction site');
+  } else {
+    toast(changed.length ? `Updated: ${changed.join(', ')}` : 'Already up to date');
   }
 }
 
@@ -1638,13 +2002,15 @@ function fillLotForm(data, url) {
   const set = (id,val) => { const el=document.getElementById(id); if (el && val && !el.value) el.value=val; };
   set('f-name', data.name); set('f-lotnum', data.lotNumber);
   set('f-estimate', data.estimate); set('f-desc', data.description);
+  set('f-hammer', data.hammerPrice);
   if (url) set('f-loturl', url);
-  if (data.lotImageUrl) {
-    set('f-imageurl', data.lotImageUrl);
+  const imgEl = document.getElementById('f-imageurl');
+  if (data.lotImageUrl && imgEl && !imgEl.value) {
+    imgEl.value = data.lotImageUrl;
     const prev = document.getElementById('lot-img-preview');
     if (prev) {
       prev.style.display = 'block';
-      prev.innerHTML = `<img src="${escA(data.lotImageUrl)}" style="max-width:100%;max-height:160px;border-radius:5px;border:1px solid var(--border);object-fit:contain;background:#f8f8f8;margin-top:8px" onerror="this.parentElement.style.display='none'">`;
+      prev.innerHTML = `<img src="${escA(proxyImg(data.lotImageUrl))}" style="max-width:100%;max-height:160px;border-radius:5px;border:1px solid var(--border);object-fit:contain;background:#f8f8f8;margin-top:8px" onerror="this.parentElement.style.display='none'">`;
     }
   }
 }
